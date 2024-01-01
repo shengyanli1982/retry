@@ -1,2 +1,3 @@
-# retry
-A lightweight tool for performing retry tasks
+# Retry
+
+A lightweight function retrying module
