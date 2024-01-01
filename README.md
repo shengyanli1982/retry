@@ -44,7 +44,7 @@ go get github.com/shengyanli1982/retry
 -   `cb`: the callback function. The default value is `&emptyCallback{}`.
 -   `attempts`: the number of times to retry. The default value is `3`.
 -   `attemptsByErrors`: the number of times to retry for specific error. The default value is `map[error]uint64{}`.
--   `delay`: the delay time between retries. The default value is `20ms`.
+-   `delay`: the delay time between retries. The default value is `200ms`.
 -   `factor`: the retry times factor. The default value is `1.0`.
 -   `retryIf`: the function to determine whether to retry. The default value is `defaultRetryIf`.
 -   `backoff`: the backoff function. The default value is `defaultBackoff`.
@@ -56,11 +56,18 @@ Cound use following methods to set config value:
 -   `WithCallback`: set the callback function.
 -   `WithAttempts`: set the number of times to retry.
 -   `WithAttemptsByErrors`: set the number of times to retry for specific error.
--   `WithDelay`: set the delay time between retries.
+-   `WithDelay`: set the delay time for frist retry.
 -   `WithFactor`: set the retry times factor.
 -   `WithRetryIf`: set the function to determine whether to retry.
 -   `WithBackoff`: set the backoff function.
 -   `WithDetail`: set whether to record the detail errors.
+
+> [!NOTE]
+> Backoff algorithm is used to calculate the delay time between retries. `Retry` supports three backoff algorithms: exponential backoff, random backoff and fix backoff. The default backoff algorithm is exponential backoff and random backoff.
+>
+> You can use `WithBackoff` method to set backoff algorithm.
+>
+> **eg**: backoff = BackOffFunc(factor \* count + jitter \* rand.Float64()) + delay
 
 ### Methods
 

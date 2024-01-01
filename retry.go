@@ -147,9 +147,8 @@ func (r *retry) TryOnConflict(fn RetryableFunc) *Result {
 				return result
 			}
 
-			// 计算下一次重试的延迟时间， delay = factor * count + jitter * rand.Float64()
+			// 计算下一次重试的延迟时间
 			// Calculate the delay time for the next retry.
-			// delay = factor * count + jitter * rand.Float64()
 			delay := int64((rand.Float64()*float64(r.config.jitter) + float64(result.count)*r.config.factor))
 			// 如果延迟时间小于等于 0，则使用默认延迟时间
 			// If the delay time is less than or equal to 0, use the default delay time.
@@ -157,6 +156,7 @@ func (r *retry) TryOnConflict(fn RetryableFunc) *Result {
 				delay = defaultDelayNum
 			}
 			// 计算需要回退的时间
+			// backoff = backoffFunc(factor * count + jitter * rand.Float64()) + delay
 			// Calculate the time to be rolled back.
 			backoff := r.config.backoff(int64(delay)) + r.config.delay
 
