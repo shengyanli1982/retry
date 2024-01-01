@@ -72,8 +72,6 @@ Cound use following methods to set config value:
 
 ### Example
 
-Follwing is a **test.go** content.
-
 ```go
 package main
 
@@ -108,4 +106,81 @@ result: lee
 tryError: <nil>
 execErrors: []
 isSuccess: true
+```
+
+# Features
+
+`Retry` provides features not many but enough for most services.
+
+## 1. Callback
+
+`Retry` supports action callback function. Specify a callback functions when create a retry, and the callback function will be called when the `Retry` do some actions.
+
+> [!TIP]
+> Callback functions is not required that you can use `Retry` without callback functions. Set `nil` when create a retry, and the callback function will not be called.
+>
+> You can use `WithCallback` method to set callback functions.
+
+The callback function has the following methods:
+
+-   `OnRetry` : called when retrying. `count` is the current retry count, `delay` is the delay time for next time, `err` is the error of the last retry.
+
+    ```go
+    type Callback interface {
+    	OnRetry(count int64, delay time.Duration, err error)
+    }
+    ```
+
+### Example
+
+```go
+package main
+
+import (
+	"errors"
+	"fmt"
+	"time"
+
+	"github.com/shengyanli1982/retry"
+)
+
+var e = errors.New("test") // error
+
+type callback struct{}
+
+// OnRetry is called when retrying
+func (cb *callback) OnRetry(count int64, delay time.Duration, err error) {
+	fmt.Println("OnRetry", count, delay.String(), err)
+}
+
+// retryable function
+func testFunc() (any, error) {
+	return nil, e
+}
+
+func main() {
+	cfg := retry.NewConfig().WithCallback(&callback{})
+
+	// retry call
+	result := retry.Do(testFunc, cfg)
+
+	// result
+	fmt.Println("result:", result.Data())
+	fmt.Println("tryError:", result.TryError())
+	fmt.Println("execErrors:", result.ExecErrors())
+	fmt.Println("isSuccess:", result.IsSuccess())
+}
+```
+
+**Result**
+
+```go
+$ go run test.go
+OnRetry 1 1s test
+OnRetry 2 2.2s test
+OnRetry 3 2.4s test
+result: <nil>
+tryError: retry attempts exceeded
+execErrors: []
+isSuccess: false
 ```
