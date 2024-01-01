@@ -95,10 +95,10 @@ func (r *retry) TryOnConflict(fn RetryableFunc) *Result {
 		return nil
 	}
 
-	// ticker 用于定时重试
-	// ticker is used for timing retry.
-	ticker := time.NewTicker(r.config.delay)
-	defer ticker.Stop()
+	// t 用于定时重试
+	// t is used for timing retry.
+	t := time.NewTimer(r.config.delay)
+	defer t.Stop()
 
 	// 执行结果
 	// Execution result.
@@ -181,11 +181,11 @@ func (r *retry) TryOnConflict(fn RetryableFunc) *Result {
 
 			// 等待重试
 			// Wait for retry.
-			<-ticker.C
+			<-t.C
 
 			// 重置 ticker
 			// Reset ticker.
-			ticker.Reset(backoff)
+			t.Reset(backoff)
 		}
 	}
 }
