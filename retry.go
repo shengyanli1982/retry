@@ -115,7 +115,7 @@ func (r *retry) TryOnConflict(fn RetryableFunc) *Result {
 			// When ctx is canceled, return the last error during the execution.
 			result.tryError = r.config.ctx.Err()
 			return result
-		default:
+		case <-t.C:
 			// 执行 fn
 			// Execute fn.
 			d, err := fn()
@@ -155,7 +155,7 @@ func (r *retry) TryOnConflict(fn RetryableFunc) *Result {
 			}
 			// 计算需要回退的时间
 			// Calculate the time to be rolled back.
-			backoff := r.config.backoff(int64(delay))
+			backoff := r.config.backoff(int64(delay)) + r.config.delay
 
 			// 执行重试回调函数
 			// Execute the retry callback function.
@@ -179,12 +179,8 @@ func (r *retry) TryOnConflict(fn RetryableFunc) *Result {
 				return result
 			}
 
-			// 等待重试
-			// Wait for retry.
-			<-t.C
-
-			// 重置 ticker
-			// Reset ticker.
+			// 重置定时器，等待下一次重试
+			// Reset the timer and wait for the next retry.
 			t.Reset(backoff)
 		}
 	}
