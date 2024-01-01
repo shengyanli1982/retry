@@ -7,8 +7,8 @@ import (
 
 const (
 	defaultAttempts = 3
-	defaultDelayNum = 2
-	defaultDelay    = defaultDelayNum * time.Second
+	defaultDelayNum = 5
+	defaultDelay    = defaultDelayNum * time.Millisecond * 100
 	defaultJitter   = 3.0
 	defaultFactor   = 1.0
 )
