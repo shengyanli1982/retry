@@ -115,6 +115,8 @@ func (r *retry) TryOnConflict(fn RetryableFunc) *Result {
 			// When ctx is canceled, return the last error during the execution.
 			result.tryError = r.config.ctx.Err()
 			return result
+		// 定时器到期时执行
+		// Execute when the timer expires.
 		case <-t.C:
 			// 执行 fn
 			// Execute fn.
