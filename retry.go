@@ -3,7 +3,6 @@ package retry
 import (
 	"math"
 	"math/rand"
-	"sync"
 	"time"
 )
 
@@ -74,26 +73,22 @@ func (r *Result) Count() int64 {
 // The RetryableFunc method is used to define the function to be executed.
 type RetryableFunc func() (any, error)
 
-// cb 为重试回调函数，config 为重试配置，lock 为重试锁
-// cb is the retry callback function, config is the retry configuration, and lock is the retry lock.
-type Retry struct {
+// config 为重试配置
+// config is the retry configuration
+type retry struct {
 	config *Config
-	lock   sync.Mutex
 }
 
-// NewRetry 方法用于创建一个新的重试实例
-// The NewRetry method is used to create a new retry instance.
-func NewRetry(conf *Config) *Retry {
+// newRetry 方法用于创建一个新的重试实例
+// The newRetry method is used to create a new retry instance.
+func newRetry(conf *Config) *retry {
 	conf = isConfigValid(conf)
-	return &Retry{
-		config: conf,
-		lock:   sync.Mutex{},
-	}
+	return &retry{config: conf}
 }
 
 // TryOnConflict 方法用于执行重试
 // The TryOnConflict method is used to execute the retry.
-func (r *Retry) TryOnConflict(fn RetryableFunc) *Result {
+func (r *retry) TryOnConflict(fn RetryableFunc) *Result {
 	// fn 为 nil 时直接返回
 	// When fn is nil, return directly.
 	if fn == nil {
@@ -121,8 +116,6 @@ func (r *Retry) TryOnConflict(fn RetryableFunc) *Result {
 			result.tryError = r.config.ctx.Err()
 			return result
 		default:
-			r.lock.Lock()
-
 			// 执行 fn
 			// Execute fn.
 			d, err := fn()
@@ -136,7 +129,6 @@ func (r *Retry) TryOnConflict(fn RetryableFunc) *Result {
 			if err == nil {
 				result.data = d
 				result.tryError = err
-				r.lock.Unlock()
 				return result
 			}
 
@@ -150,7 +142,6 @@ func (r *Retry) TryOnConflict(fn RetryableFunc) *Result {
 			// Use the retryIf function to determine whether to retry.
 			if !r.config.retryIf(err) {
 				result.tryError = ErrorRetryIf
-				r.lock.Unlock()
 				return result
 			}
 
@@ -175,7 +166,6 @@ func (r *Retry) TryOnConflict(fn RetryableFunc) *Result {
 			if errAttempts, ok := r.config.attemptsByErrors[err]; ok {
 				if errAttempts <= 0 {
 					result.tryError = ErrorRetryAttemptsByErrorExceeded
-					r.lock.Unlock()
 					return result
 				}
 				errAttempts--
@@ -186,11 +176,8 @@ func (r *Retry) TryOnConflict(fn RetryableFunc) *Result {
 			// If the total number of retries exceeds the limit, return directly.
 			if result.count >= math.MaxInt64 || result.count >= r.config.attempts {
 				result.tryError = ErrorRetryAttemptsExceeded
-				r.lock.Unlock()
 				return result
 			}
-
-			r.lock.Unlock()
 
 			// 等待重试
 			// Wait for retry.
@@ -201,4 +188,16 @@ func (r *Retry) TryOnConflict(fn RetryableFunc) *Result {
 			ticker.Reset(backoff)
 		}
 	}
+}
+
+// Do 方法用于执行重试
+// The Do method is used to execute the retry.
+func Do(fn RetryableFunc, conf *Config) *Result {
+	return newRetry(conf).TryOnConflict(fn)
+}
+
+// DoWithDefault 方法用于执行重试，使用默认配置
+// The DoWithDefault method is used to execute the retry with the default configuration.
+func DoWithDefault(fn RetryableFunc) *Result {
+	return newRetry(nil).TryOnConflict(fn)
 }
