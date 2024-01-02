@@ -51,7 +51,7 @@ func (r *Result) LastExecError() error {
 	if len(r.execErrors) > 0 {
 		return r.execErrors[len(r.execErrors)-1]
 	}
-	return nil
+	return ErrorExecErrNotFound
 }
 
 // FirstExecError 方法用于获取第一个执行过程中的错误
@@ -60,7 +60,16 @@ func (r *Result) FirstExecError() error {
 	if len(r.execErrors) > 0 {
 		return r.execErrors[0]
 	}
-	return nil
+	return ErrorExecErrNotFound
+}
+
+// ExecErrorByIndex 方法用于获取指定索引的执行过程中的错误
+// The ExecErrorByIndex method is used to get the error during the execution at the specified index.
+func (r *Result) ExecErrorByIndex(n int) error {
+	if len(r.execErrors) >= 0 && n < len(r.execErrors) {
+		return r.execErrors[n]
+	}
+	return ErrorExecErrByIndexOutOfBound
 }
 
 // Count 方法用于获取执行次数
@@ -166,13 +175,13 @@ func (r *retry) TryOnConflict(fn RetryableFunc) *Result {
 
 			// 根据错误类型，判断是否需要重试。如果指定的错误次数超过限制，则直接返回
 			// Determine whether to retry based on the error type. If the specified number of errors exceeds the limit, return directly.
-			if errAttempts, ok := r.config.attemptsByErrors[err]; ok {
+			if errAttempts, ok := r.config.attemptsByError[err]; ok {
 				if errAttempts <= 0 {
 					result.tryError = ErrorRetryAttemptsByErrorExceeded
 					return result
 				}
 				errAttempts--
-				r.config.attemptsByErrors[err] = errAttempts
+				r.config.attemptsByError[err] = errAttempts
 			}
 
 			// 如果总重试次数超过限制，则直接返回

@@ -55,7 +55,7 @@ Cound use following methods to set config value:
 -   `WithContext`: set the context.Context object.
 -   `WithCallback`: set the callback function.
 -   `WithAttempts`: set the number of times to retry.
--   `WithAttemptsByErrors`: set the number of times to retry for specific error.
+-   `WithAttemptsByError`: set the number of times to retry for specific error.
 -   `WithDelay`: set the delay time for frist retry.
 -   `WithFactor`: set the retry times factor.
 -   `WithRetryIf`: set the function to determine whether to retry.
@@ -76,6 +76,18 @@ Cound use following methods to set config value:
 
 > [!TIP]
 > The `Result` object contains the result of the function call, the error of the last retry, the errors of all retries, and whether the retry is successful. If the function call fails, the default value will be returned.
+
+### Exec Result
+
+`Retry` will return a `Result` object after retrying. The `Result` object has the following methods:
+
+-   `Data`: get the result of the function successfully called, type is `interface{}`.
+-   `TryError`: get the error of the retry action. If the retry is successful, the value is `nil`.
+-   `ExecErrors`: get the errors of all retries.
+-   `IsSuccess`: get whether the retry action is successful.
+-   `LastExecError`: get the last error of the retries.
+-   `FirstExecError`: get the first error of the retries.
+-   `ExecErrorByIndex`: get the error of the retries by index.
 
 ### Example
 

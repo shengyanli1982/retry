@@ -35,32 +35,32 @@ func (cb *emptyCallback) OnRetry(count int64, delay time.Duration, err error) {}
 type RetryIfFunc func(error) bool
 
 type Config struct {
-	ctx              context.Context
-	cb               Callback
-	attempts         uint64
-	attemptsByErrors map[error]uint64
-	factor           float64
-	jitter           float64
-	delay            time.Duration
-	retryIf          RetryIfFunc
-	backoff          BackoffFunc
-	detail           bool
+	ctx             context.Context
+	cb              Callback
+	attempts        uint64
+	attemptsByError map[error]uint64
+	factor          float64
+	jitter          float64
+	delay           time.Duration
+	retryIf         RetryIfFunc
+	backoff         BackoffFunc
+	detail          bool
 }
 
 // NewConfig 方法用于创建一个新的配置
 // The NewConfig method is used to create a new configuration.
 func NewConfig() *Config {
 	return &Config{
-		ctx:              context.Background(),
-		cb:               &emptyCallback{},
-		attempts:         defaultAttempts,
-		attemptsByErrors: make(map[error]uint64),
-		factor:           defaultFactor,
-		delay:            defaultDelay,
-		jitter:           defaultJitter,
-		retryIf:          defaultRetryIf,
-		backoff:          defaultBackoff,
-		detail:           false,
+		ctx:             context.Background(),
+		cb:              &emptyCallback{},
+		attempts:        defaultAttempts,
+		attemptsByError: make(map[error]uint64),
+		factor:          defaultFactor,
+		delay:           defaultDelay,
+		jitter:          defaultJitter,
+		retryIf:         defaultRetryIf,
+		backoff:         defaultBackoff,
+		detail:          false,
 	}
 }
 
@@ -85,20 +85,17 @@ func (c *Config) WithAttempts(attempts uint64) *Config {
 	return c
 }
 
-// WithAttemptsByErrors 方法用于设置指定错误的重试次数，所有错误的充数次数的总和应该小于 WithAttempts 方法设置的重试次数
-// The WithAttemptsByErrors method is used to set the number of retries for the specified error.
+// WithAttemptsByError 方法用于设置指定错误的重试次数，所有错误的充数次数的总和应该小于 WithAttempts 方法设置的重试次数
+// The WithAttemptsByError method is used to set the number of retries for the specified error.
 // The total number of retries for all errors should be less than the number of retries set by the WithAttempts method.
-func (c *Config) WithAttemptsByErrors(attemptsByErrors map[error]uint64) *Config {
-	c.attemptsByErrors = attemptsByErrors
+func (c *Config) WithAttemptsByError(attemptsByError map[error]uint64) *Config {
+	c.attemptsByError = attemptsByError
 	return c
 }
 
 // WithFactor 方法用于设置重试因子
 // The WithFactor method is used to set the retry factor.
 func (c *Config) WithFactor(factor float64) *Config {
-	if factor <= 0 {
-		factor = defaultFactor
-	}
 	c.factor = factor
 	return c
 }
@@ -153,8 +150,8 @@ func isConfigValid(conf *Config) *Config {
 		if conf.attempts <= 0 {
 			conf.attempts = defaultAttempts
 		}
-		if conf.attemptsByErrors == nil {
-			conf.attemptsByErrors = make(map[error]uint64)
+		if conf.attemptsByError == nil {
+			conf.attemptsByError = make(map[error]uint64)
 		}
 		if conf.factor <= 0 {
 			conf.factor = defaultFactor

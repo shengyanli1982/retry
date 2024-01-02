@@ -61,7 +61,7 @@ func TestNewRetry_SpecError(t *testing.T) {
 	e := errors.New("test")
 	m[e] = 1
 
-	cfg := NewConfig().WithAttemptsByErrors(m).WithDetail(true)
+	cfg := NewConfig().WithAttemptsByError(m).WithDetail(true)
 
 	r := newRetry(cfg)
 	assert.NotNil(t, r)
@@ -92,7 +92,7 @@ func TestNewRetry_SpecErrorCountExceeded(t *testing.T) {
 	e := errors.New("test")
 	m[e] = 1
 
-	cfg := NewConfig().WithAttemptsByErrors(m).WithDetail(true)
+	cfg := NewConfig().WithAttemptsByError(m).WithDetail(true)
 
 	r := newRetry(cfg)
 	assert.NotNil(t, r)
@@ -166,7 +166,7 @@ func TestRetry_Do(t *testing.T) {
 	e := errors.New("test")
 	m[e] = 1
 
-	cfg := NewConfig().WithAttemptsByErrors(m).WithDetail(true)
+	cfg := NewConfig().WithAttemptsByError(m).WithDetail(true)
 
 	count := 0
 	testFunc := func() (any, error) {
