@@ -27,8 +27,8 @@ func TestNewRetry_Standard(t *testing.T) {
 	assert.NotNil(t, result)
 
 	assert.Equal(t, result.IsSuccess(), true)
-	assert.Equal(t, result.LastExecError(), nil)
-	assert.Equal(t, result.FirstExecError(), nil)
+	assert.Equal(t, result.LastExecError(), ErrorExecErrNotFound)
+	assert.Equal(t, result.FirstExecError(), ErrorExecErrNotFound)
 	assert.Equal(t, result.ExecErrors(), []error{})
 	assert.Equal(t, result.Data(), "lee")
 	assert.Equal(t, result.Count(), int64(1))
@@ -209,8 +209,8 @@ func TestRetry_DoWithDefault(t *testing.T) {
 	assert.NotNil(t, result)
 
 	assert.Equal(t, result.IsSuccess(), true)
-	assert.Equal(t, result.LastExecError(), nil)
-	assert.Equal(t, result.FirstExecError(), nil)
+	assert.Equal(t, result.LastExecError(), ErrorExecErrNotFound)
+	assert.Equal(t, result.FirstExecError(), ErrorExecErrNotFound)
 	assert.Equal(t, result.ExecErrors(), []error{})
 	assert.Equal(t, result.Data(), "lee")
 	assert.Equal(t, result.Count(), int64(2))

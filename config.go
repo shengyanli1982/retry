@@ -6,17 +6,17 @@ import (
 )
 
 const (
-	defaultAttempts = 3
-	defaultDelayNum = 5
-	defaultDelay    = defaultDelayNum * time.Millisecond * 100
-	defaultJitter   = 3.0
-	defaultFactor   = 1.0
+	defaultAttempts = 3                                        // 默认重试次数
+	defaultDelayNum = 5                                        // 默认延迟时间
+	defaultDelay    = defaultDelayNum * time.Millisecond * 100 // 默认延迟时间
+	defaultJitter   = 3.0                                      // 默认抖动
+	defaultFactor   = 1.0                                      // 默认因子
 )
 
 var (
 	defaultRetryIf = func(error) bool { return true }
 	defaultBackoff = func(n int64) time.Duration {
-		return CombineBackOffs(ExponentialBackOff, RandomBackOff)(n)
+		return CombineBackOffs(ExponentialBackOff, RandomBackOff)(n) // 默认间隔 (指数退避 + 随机退避) 策略
 	}
 )
 
@@ -153,7 +153,7 @@ func isConfigValid(conf *Config) *Config {
 		if conf.attemptsByError == nil {
 			conf.attemptsByError = make(map[error]uint64)
 		}
-		if conf.factor <= 0 {
+		if conf.factor < 0 {
 			conf.factor = defaultFactor
 		}
 		if conf.delay <= 0 {
@@ -171,4 +171,16 @@ func isConfigValid(conf *Config) *Config {
 	}
 
 	return conf
+}
+
+// DefaultConfig 方法用于生成默认配置
+// The DefaultConfig method is used to generate the default configuration.
+func DefaultConfig() *Config {
+	return NewConfig()
+}
+
+// FixConfig 方法用于生成没有抖动和因子的配置
+// The FixConfig method is used to generate a configuration without jitter and factor.
+func FixConfig() *Config {
+	return NewConfig().WithBackoff(FixBackOff).WithFactor(0).WithJitter(0)
 }

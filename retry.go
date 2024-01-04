@@ -158,14 +158,14 @@ func (r *retry) TryOnConflict(fn RetryableFunc) *Result {
 
 			// 计算下一次重试的延迟时间
 			// Calculate the delay time for the next retry.
-			delay := int64((rand.Float64()*float64(r.config.jitter) + float64(result.count)*r.config.factor))
+			delay := int64(rand.Float64()*float64(r.config.jitter) + float64(result.count)*r.config.factor)
 			// 如果延迟时间小于等于 0，则使用默认延迟时间
 			// If the delay time is less than or equal to 0, use the default delay time.
 			if delay <= 0 {
 				delay = defaultDelayNum
 			}
 			// 计算需要回退的时间
-			// backoff = backoffFunc(factor * count + jitter * rand.Float64()) + delay
+			// backoff = backoffFunc(factor * count + jitter * rand.Float64()) * 100 * Millisecond + delay
 			// Calculate the time to be rolled back.
 			backoff := r.config.backoff(int64(delay)) + r.config.delay
 
@@ -186,7 +186,7 @@ func (r *retry) TryOnConflict(fn RetryableFunc) *Result {
 
 			// 如果总重试次数超过限制，则直接返回
 			// If the total number of retries exceeds the limit, return directly.
-			if result.count >= math.MaxInt64 || result.count >= r.config.attempts {
+			if result.count >= r.config.attempts || result.count >= math.MaxInt64 {
 				result.tryError = ErrorRetryAttemptsExceeded
 				return result
 			}
