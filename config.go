@@ -2,6 +2,7 @@ package retry
 
 import (
 	"context"
+	"math"
 	"time"
 )
 
@@ -147,7 +148,7 @@ func isConfigValid(conf *Config) *Config {
 		if conf.cb == nil {
 			conf.cb = &emptyCallback{}
 		}
-		if conf.attempts <= 0 {
+		if conf.attempts <= 0 || conf.attempts >= math.MaxUint16 {
 			conf.attempts = defaultAttempts
 		}
 		if conf.attemptsByError == nil {

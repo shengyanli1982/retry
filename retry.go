@@ -1,7 +1,6 @@
 package retry
 
 import (
-	"math"
 	"math/rand"
 	"time"
 )
@@ -83,21 +82,21 @@ func (r *Result) Count() int64 {
 type RetryableFunc func() (any, error)
 
 // config 为重试配置
-// config is the retry configuration
-type retry struct {
+// config is the Retry configuration
+type Retry struct {
 	config *Config
 }
 
-// newRetry 方法用于创建一个新的重试实例
-// The newRetry method is used to create a new retry instance.
-func newRetry(conf *Config) *retry {
+// New 方法用于创建一个新的重试实例
+// The New method is used to create a new retry instance.
+func New(conf *Config) *Retry {
 	conf = isConfigValid(conf)
-	return &retry{config: conf}
+	return &Retry{config: conf}
 }
 
 // TryOnConflict 方法用于执行重试
 // The TryOnConflict method is used to execute the retry.
-func (r *retry) TryOnConflict(fn RetryableFunc) *Result {
+func (r *Retry) TryOnConflict(fn RetryableFunc) *Result {
 	// fn 为 nil 时直接返回
 	// When fn is nil, return directly.
 	if fn == nil {
@@ -186,7 +185,7 @@ func (r *retry) TryOnConflict(fn RetryableFunc) *Result {
 
 			// 如果总重试次数超过限制，则直接返回
 			// If the total number of retries exceeds the limit, return directly.
-			if result.count >= r.config.attempts || result.count >= math.MaxInt64 {
+			if result.count >= r.config.attempts {
 				result.tryError = ErrorRetryAttemptsExceeded
 				return result
 			}
@@ -201,11 +200,11 @@ func (r *retry) TryOnConflict(fn RetryableFunc) *Result {
 // Do 方法用于执行重试
 // The Do method is used to execute the retry.
 func Do(fn RetryableFunc, conf *Config) *Result {
-	return newRetry(conf).TryOnConflict(fn)
+	return New(conf).TryOnConflict(fn)
 }
 
 // DoWithDefault 方法用于执行重试，使用默认配置
 // The DoWithDefault method is used to execute the retry with the default configuration.
 func DoWithDefault(fn RetryableFunc) *Result {
-	return newRetry(nil).TryOnConflict(fn)
+	return New(nil).TryOnConflict(fn)
 }

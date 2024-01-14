@@ -36,6 +36,8 @@ go get github.com/shengyanli1982/retry
 
 `Retry` is very simple to use. Just one line of code can be used to retry a function call.
 
+## 1. Normal Model
+
 ### Config
 
 `Retry` has a config object, which can be used to configure the retry behavior. The config object has the following fields:
@@ -67,7 +69,7 @@ Cound use following methods to set config value:
 >
 > You can use `WithBackoff` method to set backoff algorithm.
 >
-> **eg**: backoff = backoffFunc(factor * count + jitter * rand.Float64()) * 100 * Millisecond + delay
+> **eg**: backoff = backoffFunc(factor _ count + jitter _ rand.Float64()) _ 100 _ Millisecond + delay
 
 ### Methods
 
@@ -125,6 +127,75 @@ result: lee
 tryError: <nil>
 execErrors: []
 isSuccess: true
+```
+
+## 2. Factory Model
+
+Like `Normal Model`, all retry functions and features are supported. The same `Config`, `Methods`, `Result` and `Callback` are used.
+
+The only difference is that the `Retry` object is created by the `New` method. Then you can call `TryOnConflict` method to retry the function call with the same parameters.
+
+### Example
+
+```go
+package main
+
+import (
+	"errors"
+	"fmt"
+
+	"github.com/shengyanli1982/retry"
+)
+
+// retryable function
+func testFunc1() (any, error) {
+	return "testFunc1", nil
+}
+
+func testFunc2() (any, error) {
+	return nil, errors.New("testFunc2")
+}
+
+func main() {
+	// retry with config
+	r := retry.New(nil)
+
+	// try on conflict
+	result := r.TryOnConflict(testFunc1)
+
+	// result
+	fmt.Println("========= testFunc1 =========")
+	fmt.Println("result:", result.Data())
+	fmt.Println("tryError:", result.TryError())
+	fmt.Println("execErrors:", result.ExecErrors())
+	fmt.Println("isSuccess:", result.IsSuccess())
+
+	// try on conflict
+	result = r.TryOnConflict(testFunc2)
+
+	// result
+	fmt.Println("========= testFunc2 =========")
+	fmt.Println("result:", result.Data())
+	fmt.Println("tryError:", result.TryError())
+	fmt.Println("execErrors:", result.ExecErrors())
+	fmt.Println("isSuccess:", result.IsSuccess())
+}
+```
+
+**Result**
+
+```bash
+$ go run test.go
+========= testFunc1 =========
+result: testFunc1
+tryError: <nil>
+execErrors: []
+isSuccess: true
+========= testFunc2 =========
+result: <nil>
+tryError: retry attempts exceeded
+execErrors: []
+isSuccess: false
 ```
 
 # Features
