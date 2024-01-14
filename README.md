@@ -69,7 +69,7 @@ Cound use following methods to set config value:
 >
 > You can use `WithBackoff` method to set backoff algorithm.
 >
-> **eg**: backoff = backoffFunc(factor _ count + jitter _ rand.Float64()) _ 100 _ Millisecond + delay
+> **eg**: backoff = backoffFunc(factor \* count + jitter \* rand.Float64()) \* 100 \* Millisecond + delay
 
 ### Methods
 
