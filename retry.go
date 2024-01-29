@@ -79,7 +79,7 @@ func (r *Result) Count() int64 {
 
 // RetryableFunc 方法用于定义待执行的函数
 // The RetryableFunc method is used to define the function to be executed.
-type RetryableFunc func() (any, error)
+type RetryableFunc = func() (any, error)
 
 // config 为重试配置
 // config is the Retry configuration
