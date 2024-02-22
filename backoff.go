@@ -10,7 +10,7 @@ const baseTimeDuration = 100 * time.Millisecond
 
 // 用于计算重试间隔
 // Used to calculate the retry interval.
-type BackoffFunc func(int64) time.Duration
+type BackoffFunc = func(int64) time.Duration
 
 // FixBackOff 方法用于固定间隔重试
 // The FixBackOff method is used to retry at a fixed interval.
