@@ -103,10 +103,10 @@ func (r *Retry) TryOnConflict(fn RetryableFunc) *Result {
 		return nil
 	}
 
-	// t 用于定时重试
-	// t is used for timing retry.
-	t := time.NewTimer(r.config.delay)
-	defer t.Stop()
+	// tr 用于定时重试
+	// tr is used for timing retry.
+	tr := time.NewTimer(r.config.delay)
+	defer tr.Stop()
 
 	// 执行结果
 	// Execution result.
@@ -123,12 +123,13 @@ func (r *Retry) TryOnConflict(fn RetryableFunc) *Result {
 			// When ctx is canceled, return the last error during the execution.
 			result.tryError = r.config.ctx.Err()
 			return result
+
 		// 定时器到期时执行
 		// Execute when the timer expires.
-		case <-t.C:
+		case <-tr.C:
 			// 执行 fn
 			// Execute fn.
-			d, err := fn()
+			data, err := fn()
 
 			// 更新重试次数
 			// Update the number of retries.
@@ -137,7 +138,7 @@ func (r *Retry) TryOnConflict(fn RetryableFunc) *Result {
 			// 如果执行成功，则直接返回
 			// If the execution is successful, return directly.
 			if err == nil {
-				result.data = d
+				result.data = data
 				result.tryError = err
 				return result
 			}
@@ -158,11 +159,13 @@ func (r *Retry) TryOnConflict(fn RetryableFunc) *Result {
 			// 计算下一次重试的延迟时间
 			// Calculate the delay time for the next retry.
 			delay := int64(rand.Float64()*float64(r.config.jitter) + float64(result.count)*r.config.factor)
+
 			// 如果延迟时间小于等于 0，则使用默认延迟时间
 			// If the delay time is less than or equal to 0, use the default delay time.
 			if delay <= 0 {
 				delay = defaultDelayNum
 			}
+
 			// 计算需要回退的时间
 			// backoff = backoffFunc(factor * count + jitter * rand.Float64()) * 100 * Millisecond + delay
 			// Calculate the time to be rolled back.
@@ -192,7 +195,7 @@ func (r *Retry) TryOnConflict(fn RetryableFunc) *Result {
 
 			// 重置定时器，等待下一次重试
 			// Reset the timer and wait for the next retry.
-			t.Reset(backoff)
+			tr.Reset(backoff)
 		}
 	}
 }

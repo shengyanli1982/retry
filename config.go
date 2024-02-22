@@ -7,15 +7,34 @@ import (
 )
 
 const (
-	defaultAttempts = 3                                        // 默认重试次数
-	defaultDelayNum = 5                                        // 默认延迟时间
-	defaultDelay    = defaultDelayNum * time.Millisecond * 100 // 默认延迟时间
-	defaultJitter   = 3.0                                      // 默认抖动
-	defaultFactor   = 1.0                                      // 默认因子
+	// 默认重试次数
+	// Default number of retries
+	defaultAttempts = 3
+
+	// 默认延迟时间
+	// Default delay time
+	defaultDelayNum = 5
+
+	// 默认重试间隔
+	// Default retry interval
+	defaultDelay = defaultDelayNum * time.Millisecond * 100
+
+	// 默认抖动
+	// Default jitter
+	defaultJitter = 3.0
+
+	// 默认因子
+	// Default factor
+	defaultFactor = 1.0
 )
 
 var (
+	// 默认重试条件
+	// Default retry condition
 	defaultRetryIf = func(error) bool { return true }
+
+	// 默认间隔策略
+	// Default interval strategy
 	defaultBackoff = func(n int64) time.Duration {
 		return CombineBackOffs(ExponentialBackOff, RandomBackOff)(n) // 默认间隔 (指数退避 + 随机退避) 策略
 	}
@@ -27,14 +46,26 @@ type Callback interface {
 	OnRetry(count int64, delay time.Duration, err error)
 }
 
+// emptyCallback 用于实现 Callback 接口
+// emptyCallback is used to implement the Callback interface.
 type emptyCallback struct{}
 
+// OnRetry 方法用于实现 Callback 接口
+// The OnRetry method is used to implement the Callback interface.
 func (cb *emptyCallback) OnRetry(count int64, delay time.Duration, err error) {}
+
+// NewEmptyCallback 方法用于创建一个空的回调函数
+// The NewEmptyCallback method is used to create an empty callback function.
+func NewEmptyCallback() Callback {
+	return &emptyCallback{}
+}
 
 // 用于判断是否重试
 // Used to determine whether to retry.
-type RetryIfFunc func(error) bool
+type RetryIfFunc = func(error) bool
 
+// Config 定义了重试配置
+// Config defines the retry configuration.
 type Config struct {
 	ctx             context.Context
 	cb              Callback
@@ -101,9 +132,9 @@ func (c *Config) WithFactor(factor float64) *Config {
 	return c
 }
 
-// WithDelay 方法用于设置重试延迟
-// The WithDelay method is used to set the retry delay.
-func (c *Config) WithDelay(delay time.Duration) *Config {
+// WithInitDelay 方法用于设置初始重试延迟
+// The WithInitDelay method is used to set the initial retry delay.
+func (c *Config) WithInitDelay(delay time.Duration) *Config {
 	c.delay = delay
 	return c
 }
