@@ -156,7 +156,7 @@ func TestRetryTryOnConflictRetryIf(t *testing.T) {
 		return !errors.Is(err, e)
 	}
 
-	cfg := NewConfig().WithRetryIf(retryIf)
+	cfg := NewConfig().WithRetryIfFunc(retryIf)
 
 	r := New(cfg)
 	assert.NotNil(t, r)

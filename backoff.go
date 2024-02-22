@@ -6,6 +6,8 @@ import (
 	"time"
 )
 
+// 基准时间间隔
+// Base time interval
 const baseTimeDuration = 100 * time.Millisecond
 
 // 用于计算重试间隔
@@ -40,11 +42,15 @@ func CombineBackOffs(backoffs ...BackoffFunc) BackoffFunc {
 		for _, backoff := range backoffs {
 			delay += backoff(n)
 		}
+
 		// 如果重试间隔小于等于 0，则返回默认重试间隔
 		// If the retry interval is less than or equal to 0, the default retry interval is returned.
 		if delay <= 0 {
 			return defaultDelay
 		}
+
+		// 返回重试间隔
+		// Return the retry interval.
 		return delay
 	}
 }
