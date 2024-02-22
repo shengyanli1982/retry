@@ -151,7 +151,7 @@ func (r *Retry) TryOnConflict(fn RetryableFunc) *Result {
 
 			// 使用 retryIf 函数，判断是否需要重试
 			// Use the retryIf function to determine whether to retry.
-			if !r.config.retryIf(err) {
+			if !r.config.retryIfFunc(err) {
 				result.tryError = ErrorRetryIf
 				return result
 			}
@@ -169,11 +169,11 @@ func (r *Retry) TryOnConflict(fn RetryableFunc) *Result {
 			// 计算需要回退的时间
 			// backoff = backoffFunc(factor * count + jitter * rand.Float64()) * 100 * Millisecond + delay
 			// Calculate the time to be rolled back.
-			backoff := r.config.backoff(int64(delay)) + r.config.delay
+			backoff := r.config.backoffFunc(int64(delay)) + r.config.delay
 
 			// 执行重试回调函数
 			// Execute the retry callback function.
-			r.config.cb.OnRetry(int64(result.count), backoff, err)
+			r.config.callback.OnRetry(int64(result.count), backoff, err)
 
 			// 根据错误类型，判断是否需要重试。如果指定的错误次数超过限制，则直接返回
 			// Determine whether to retry based on the error type. If the specified number of errors exceeds the limit, return directly.

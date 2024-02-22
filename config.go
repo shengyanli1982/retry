@@ -31,11 +31,11 @@ const (
 var (
 	// 默认重试条件
 	// Default retry condition
-	defaultRetryIf = func(error) bool { return true }
+	defaultRetryIfFunc = func(error) bool { return true }
 
 	// 默认间隔策略
 	// Default interval strategy
-	defaultBackoff = func(n int64) time.Duration {
+	defaultBackoffFunc = func(n int64) time.Duration {
 		return CombineBackOffs(ExponentialBackOff, RandomBackOff)(n) // 默认间隔 (指数退避 + 随机退避) 策略
 	}
 )
@@ -68,14 +68,14 @@ type RetryIfFunc = func(error) bool
 // Config defines the retry configuration.
 type Config struct {
 	ctx             context.Context
-	cb              Callback
+	callback        Callback
 	attempts        uint64
 	attemptsByError map[error]uint64
 	factor          float64
 	jitter          float64
 	delay           time.Duration
-	retryIf         RetryIfFunc
-	backoff         BackoffFunc
+	retryIfFunc     RetryIfFunc
+	backoffFunc     BackoffFunc
 	detail          bool
 }
 
@@ -84,14 +84,14 @@ type Config struct {
 func NewConfig() *Config {
 	return &Config{
 		ctx:             context.Background(),
-		cb:              &emptyCallback{},
+		callback:        NewEmptyCallback(),
 		attempts:        defaultAttempts,
 		attemptsByError: make(map[error]uint64),
 		factor:          defaultFactor,
 		delay:           defaultDelay,
 		jitter:          defaultJitter,
-		retryIf:         defaultRetryIf,
-		backoff:         defaultBackoff,
+		retryIfFunc:     defaultRetryIfFunc,
+		backoffFunc:     defaultBackoffFunc,
 		detail:          false,
 	}
 }
@@ -106,7 +106,7 @@ func (c *Config) WithContext(ctx context.Context) *Config {
 // WithCallback 方法用于设置回调函数
 // The WithCallback method is used to set the callback function.
 func (c *Config) WithCallback(cb Callback) *Config {
-	c.cb = cb
+	c.callback = cb
 	return c
 }
 
@@ -146,17 +146,17 @@ func (c *Config) WithJitter(jitter float64) *Config {
 	return c
 }
 
-// WithRetryIf 方法用于设置重试条件
-// The WithRetryIf method is used to set the retry condition.
-func (c *Config) WithRetryIf(retryIf RetryIfFunc) *Config {
-	c.retryIf = retryIf
+// WithRetryIfFunc 方法用于设置重试条件
+// The WithRetryIfFunc method is used to set the retry condition.
+func (c *Config) WithRetryIfFunc(retryIf RetryIfFunc) *Config {
+	c.retryIfFunc = retryIf
 	return c
 }
 
-// WithBackoff 方法用于设置重试间隔
-// The WithBackoff method is used to set the retry interval.
-func (c *Config) WithBackoff(backoff BackoffFunc) *Config {
-	c.backoff = backoff
+// WithBackOffFunc 方法用于设置重试间隔
+// The WithBackOffFunc method is used to set the retry interval.
+func (c *Config) WithBackOffFunc(backoff BackoffFunc) *Config {
+	c.backoffFunc = backoff
 	return c
 }
 
@@ -176,8 +176,8 @@ func isConfigValid(conf *Config) *Config {
 		if conf.ctx == nil {
 			conf.ctx = context.Background()
 		}
-		if conf.cb == nil {
-			conf.cb = &emptyCallback{}
+		if conf.callback == nil {
+			conf.callback = NewEmptyCallback()
 		}
 		if conf.attempts <= 0 || conf.attempts >= math.MaxUint16 {
 			conf.attempts = defaultAttempts
@@ -194,11 +194,11 @@ func isConfigValid(conf *Config) *Config {
 		if conf.jitter < 0 {
 			conf.jitter = defaultJitter
 		}
-		if conf.retryIf == nil {
-			conf.retryIf = defaultRetryIf
+		if conf.retryIfFunc == nil {
+			conf.retryIfFunc = defaultRetryIfFunc
 		}
-		if conf.backoff == nil {
-			conf.backoff = defaultBackoff
+		if conf.backoffFunc == nil {
+			conf.backoffFunc = defaultBackoffFunc
 		}
 	}
 
@@ -214,5 +214,5 @@ func DefaultConfig() *Config {
 // FixConfig 方法用于生成没有抖动和因子的配置
 // The FixConfig method is used to generate a configuration without jitter and factor.
 func FixConfig() *Config {
-	return NewConfig().WithBackoff(FixBackOff).WithFactor(0).WithJitter(0)
+	return NewConfig().WithBackOffFunc(FixBackOff).WithFactor(0).WithJitter(0)
 }

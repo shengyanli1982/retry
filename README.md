@@ -43,13 +43,13 @@ go get github.com/shengyanli1982/retry
 `Retry` has a config object, which can be used to configure the retry behavior. The config object has the following fields:
 
 -   `ctx`: the context.Context object. The default value is `context.Background()`.
--   `cb`: the callback function. The default value is `&emptyCallback{}`.
+-   `callback`: the callback function. The default value is `&emptyCallback{}`.
 -   `attempts`: the number of times to retry. The default value is `3`.
 -   `attemptsByErrors`: the number of times to retry for specific error. The default value is `map[error]uint64{}`.
 -   `delay`: the delay time between retries. The default value is `200ms`.
 -   `factor`: the retry times factor. The default value is `1.0`.
--   `retryIf`: the function to determine whether to retry. The default value is `defaultRetryIf`.
--   `backoff`: the backoff function. The default value is `defaultBackoff`.
+-   `retryIf`: the function to determine whether to retry. The default value is `defaultRetryIfFunc`.
+-   `backoff`: the backoff function. The default value is `defaultBackoffFunc`.
 -   `detail`: whether to record the detail errors. The default value is `false`.
 
 Cound use following methods to set config value:
@@ -60,14 +60,14 @@ Cound use following methods to set config value:
 -   `WithAttemptsByError`: set the number of times to retry for specific error.
 -   `WithDelay`: set the delay time for frist retry.
 -   `WithFactor`: set the retry times factor.
--   `WithRetryIf`: set the function to determine whether to retry.
--   `WithBackoff`: set the backoff function.
+-   `WithRetryIfFunc`: set the function to determine whether to retry.
+-   `WithBackOffFunc`: set the backoff function.
 -   `WithDetail`: set whether to record the detail errors.
 
 > [!NOTE]
 > Backoff algorithm is used to calculate the delay time between retries. `Retry` supports three backoff algorithms: exponential backoff, random backoff and fix backoff. The default backoff algorithm is exponential backoff and random backoff.
 >
-> You can use `WithBackoff` method to set backoff algorithm.
+> You can use `WithBackOffFunc` method to set backoff algorithm.
 >
 > **eg**: backoff = backoffFunc(factor \* count + jitter \* rand.Float64()) \* 100 \* Millisecond + delay
 
