@@ -6,81 +6,60 @@ import (
 	"time"
 )
 
+// 定义默认的重试次数、延迟时间、抖动和因子
+// Define the default number of retries, delay time, jitter, and factor
 const (
-	// 默认重试次数
-	// Default number of retries
-	defaultAttempts = 3
-
-	// 默认延迟时间
-	// Default delay time
-	defaultDelayNum = 5
-
-	// 默认重试间隔
-	// Default retry interval
-	defaultDelay = defaultDelayNum * time.Millisecond * 100
-
-	// 默认抖动
-	// Default jitter
-	defaultJitter = 3.0
-
-	// 默认因子
-	// Default factor
-	defaultFactor = 1.0
+	defaultAttempts = 3                                        // 默认的重试次数为3次
+	defaultDelayNum = 5                                        // 默认的延迟时间为5毫秒
+	defaultDelay    = defaultDelayNum * time.Millisecond * 100 // 计算默认的延迟时间
+	defaultJitter   = 3.0                                      // 默认的抖动为3.0
+	defaultFactor   = 1.0                                      // 默认的因子为1.0
 )
 
+// 定义默认的重试条件函数和退避函数
+// Define the default retry condition function and backoff function
 var (
-	// 默认重试条件
-	// Default retry condition
-	defaultRetryIfFunc = func(error) bool { return true }
-
-	// 默认间隔策略
-	// Default interval strategy
-	defaultBackoffFunc = func(n int64) time.Duration {
-		return CombineBackOffs(ExponentialBackOff, RandomBackOff)(n) // 默认间隔 (指数退避 + 随机退避) 策略
+	defaultRetryIfFunc = func(error) bool { return true } // 默认的重试条件函数，对所有错误都进行重试
+	defaultBackoffFunc = func(n int64) time.Duration {    // 默认的退避函数，使用指数退避和随机退避的组合
+		return CombineBackOffs(ExponentialBackOff, RandomBackOff)(n)
 	}
 )
 
-// Callback 方法用于定义重试回调函数
-// The Callback method is used to define the retry callback function.
-type Callback interface {
-	OnRetry(count int64, delay time.Duration, err error)
-}
-
-// emptyCallback 用于实现 Callback 接口
-// emptyCallback is used to implement the Callback interface.
+// 定义一个空的回调结构体
+// Define an empty callback structure
 type emptyCallback struct{}
 
-// OnRetry 方法用于实现 Callback 接口
-// The OnRetry method is used to implement the Callback interface.
+// OnRetry 方法在每次重试时调用，但不执行任何操作
+// The OnRetry method is called on each retry, but does not perform any operations
 func (cb *emptyCallback) OnRetry(count int64, delay time.Duration, err error) {}
 
-// NewEmptyCallback 方法用于创建一个空的回调函数
-// The NewEmptyCallback method is used to create an empty callback function.
+// NewEmptyCallback 函数返回一个新的空回调实例
+// The NewEmptyCallback function returns a new empty callback instance
 func NewEmptyCallback() Callback {
 	return &emptyCallback{}
 }
 
-// 用于判断是否重试
-// Used to determine whether to retry.
+// RetryIfFunc 类型定义了一个接受错误并返回布尔值的函数类型
+// The RetryIfFunc type defines a function type that accepts an error and returns a boolean value
 type RetryIfFunc = func(error) bool
 
-// Config 定义了重试配置
-// Config defines the retry configuration.
+// Config 结构体定义了重试的配置
+// The Config structure defines the configuration for retries
 type Config struct {
-	ctx             context.Context
-	callback        Callback
-	attempts        uint64
-	attemptsByError map[error]uint64
-	factor          float64
-	jitter          float64
-	delay           time.Duration
-	retryIfFunc     RetryIfFunc
-	backoffFunc     BackoffFunc
-	detail          bool
+	ctx             context.Context  // 上下文，用于控制重试的生命周期
+	callback        Callback         // 回调函数，用于在每次重试时执行
+	attempts        uint64           // 重试次数
+	attemptsByError map[error]uint64 // 按错误类型的重试次数
+	factor          float64          // 退避因子，用于控制退避时间的增长速度
+	jitter          float64          // 抖动，用于在退避时间上添加随机性
+	delay           time.Duration    // 延迟时间，用于控制每次重试之间的间隔
+	retryIfFunc     RetryIfFunc      // 重试条件函数，用于判断是否应该重试
+	backoffFunc     BackoffFunc      // 退避函数，用于计算每次重试的延迟时间
+	detail          bool             // 是否显示详细的错误信息
 }
 
-// NewConfig 方法用于创建一个新的配置
-// The NewConfig method is used to create a new configuration.
+// NewConfig 函数返回一个新的 Config 实例，使用默认的配置
+// The NewConfig function returns a new Config instance with the default configuration
 func NewConfig() *Config {
 	return &Config{
 		ctx:             context.Background(),
@@ -96,79 +75,78 @@ func NewConfig() *Config {
 	}
 }
 
-// WithContext 方法用于设置上下文
-// The WithContext method is used to set the context.
+// WithContext 方法设置 Config 的上下文并返回 Config 实例
+// The WithContext method sets the context of the Config and returns the Config instance
 func (c *Config) WithContext(ctx context.Context) *Config {
 	c.ctx = ctx
 	return c
 }
 
-// WithCallback 方法用于设置回调函数
-// The WithCallback method is used to set the callback function.
+// WithCallback 方法设置 Config 的回调函数并返回 Config 实例
+// The WithCallback method sets the callback function of the Config and returns the Config instance
 func (c *Config) WithCallback(cb Callback) *Config {
 	c.callback = cb
 	return c
 }
 
-// WithAttempts 方法用于设置重试次数
-// The WithAttempts method is used to set the number of retries.
+// WithAttempts 方法设置 Config 的重试次数并返回 Config 实例
+// The WithAttempts method sets the number of retries of the Config and returns the Config instance
 func (c *Config) WithAttempts(attempts uint64) *Config {
 	c.attempts = attempts
 	return c
 }
 
-// WithAttemptsByError 方法用于设置指定错误的重试次数，所有错误的充数次数的总和应该小于 WithAttempts 方法设置的重试次数
-// The WithAttemptsByError method is used to set the number of retries for the specified error.
-// The total number of retries for all errors should be less than the number of retries set by the WithAttempts method.
+// WithAttemptsByError 方法设置 Config 的错误重试次数并返回 Config 实例
+// The WithAttemptsByError method sets the number of error retries of the Config and returns the Config instance
 func (c *Config) WithAttemptsByError(attemptsByError map[error]uint64) *Config {
 	c.attemptsByError = attemptsByError
 	return c
 }
 
-// WithFactor 方法用于设置重试因子
-// The WithFactor method is used to set the retry factor.
+// WithFactor 方法设置 Config 的因子并返回 Config 实例
+// The WithFactor method sets the factor of the Config and returns the Config instance
 func (c *Config) WithFactor(factor float64) *Config {
 	c.factor = factor
 	return c
 }
 
-// WithInitDelay 方法用于设置初始重试延迟
-// The WithInitDelay method is used to set the initial retry delay.
+// WithInitDelay 方法设置 Config 的初始延迟时间并返回 Config 实例
+// The WithInitDelay method sets the initial delay time of the Config and returns the Config instance
 func (c *Config) WithInitDelay(delay time.Duration) *Config {
 	c.delay = delay
 	return c
 }
 
-// WithJitter 方法用于设置重试抖动
-// The WithJitter method is used to set the retry jitter.
+// WithJitter 方法设置 Config 的抖动并返回 Config 实例
+// The WithJitter method sets the jitter of the Config and returns the Config instance
 func (c *Config) WithJitter(jitter float64) *Config {
 	c.jitter = jitter
 	return c
 }
 
-// WithRetryIfFunc 方法用于设置重试条件
-// The WithRetryIfFunc method is used to set the retry condition.
+// WithRetryIfFunc 方法设置 Config 的重试条件函数并返回 Config 实例
+// The WithRetryIfFunc method sets the retry condition function of the Config and returns the Config instance
 func (c *Config) WithRetryIfFunc(retryIf RetryIfFunc) *Config {
 	c.retryIfFunc = retryIf
 	return c
 }
 
-// WithBackOffFunc 方法用于设置重试间隔
-// The WithBackOffFunc method is used to set the retry interval.
+// WithBackOffFunc 方法设置 Config 的退避函数并返回 Config 实例
+// The WithBackOffFunc method sets the backoff function of the Config and returns the Config instance
 func (c *Config) WithBackOffFunc(backoff BackoffFunc) *Config {
 	c.backoffFunc = backoff
 	return c
 }
 
-// WithDetail 方法用于设置是否记录重试过程中的错误
-// The WithDetail method is used to set whether to record errors during the retry process.
+// WithDetail 方法设置 Config 的详细错误信息显示选项并返回 Config 实例
+// The WithDetail method sets the detailed error information display option of the Config and returns the Config instance
 func (c *Config) WithDetail(detail bool) *Config {
 	c.detail = detail
 	return c
 }
 
-// isConfigValid 方法用于检查配置是否合法
-// The isConfigValid method is used to check whether the configuration is valid.
+// isConfigValid 函数检查 Config 是否有效，如果无效则使用默认值
+// The isConfigValid function checks whether the Config is valid, and uses the default value if it is invalid
 func isConfigValid(conf *Config) *Config {
 	if conf == nil {
 		conf = NewConfig()
@@ -205,14 +183,14 @@ func isConfigValid(conf *Config) *Config {
 	return conf
 }
 
-// DefaultConfig 方法用于生成默认配置
-// The DefaultConfig method is used to generate the default configuration.
+// DefaultConfig 函数返回一个新的默认配置的 Config 实例
+// The DefaultConfig function returns a new Config instance with the default configuration
 func DefaultConfig() *Config {
 	return NewConfig()
 }
 
-// FixConfig 方法用于生成没有抖动和因子的配置
-// The FixConfig method is used to generate a configuration without jitter and factor.
+// FixConfig 函数返回一个新的固定退避时间的 Config 实例
+// The FixConfig function returns a new Config instance with a fixed backoff time
 func FixConfig() *Config {
 	return NewConfig().WithBackOffFunc(FixBackOff).WithFactor(0).WithJitter(0)
 }
