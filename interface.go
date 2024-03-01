@@ -12,7 +12,7 @@ type Callback interface {
 
 // ResultInterface 接口定义了执行结果的相关方法
 // The ResultInterface interface defines methods related to execution results
-type ResultInterface interface {
+type ResultInterface = interface {
 	// Data 方法返回执行结果的数据
 	// The Data method returns the data of the execution result
 	Data() any
