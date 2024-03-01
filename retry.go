@@ -191,17 +191,15 @@ func (r *Retry) TryOnConflict(fn RetryableFunc) *Result {
 	}
 }
 
-// TryOnConflictInterface 方法尝试执行 fn 函数，如果遇到冲突则进行重试, 返回结果接口
-// The TryOnConflictInterface method attempts to execute the fn function, and retries if a conflict is encountered, returning the result interface
-func (r *Retry) TryOnConflictInterface(fn RetryableFunc) ResultInterface {
-	// 调用 TryOnConflict 方法执行 fn 函数并返回结果
-	// Call the TryOnConflict method to execute the fn function and return the result
+// TryOnConflict 方法尝试执行 RetryableFunc 函数，如果发生冲突，则进行重试
+// The TryOnConflict method tries to execute the RetryableFunc function, and retries if a conflict occurs
+func (r *Retry) TryOnConflictVal(fn RetryableFunc) RetryResult {
 	return r.TryOnConflict(fn)
 }
 
 // Do 函数尝试执行 fn 函数，如果遇到冲突则根据 conf 配置进行重试
 // The Do function attempts to execute the fn function, and retries according to the conf configuration if a conflict is encountered
-func Do(fn RetryableFunc, conf *Config) *Result {
+func Do(fn RetryableFunc, conf *Config) RetryResult {
 	// 创建一个新的 Retry 实例并尝试执行 fn 函数
 	// Create a new Retry instance and try to execute the fn function
 	return New(conf).TryOnConflict(fn)
@@ -209,7 +207,7 @@ func Do(fn RetryableFunc, conf *Config) *Result {
 
 // DoWithDefault 函数尝试执行 fn 函数，如果遇到冲突则使用默认配置进行重试
 // The DoWithDefault function attempts to execute the fn function, and retries with the default configuration if a conflict is encountered
-func DoWithDefault(fn RetryableFunc) *Result {
+func DoWithDefault(fn RetryableFunc) RetryResult {
 	// 创建一个新的 Retry 实例并尝试执行 fn 函数
 	// Create a new Retry instance and try to execute the fn function
 	return New(nil).TryOnConflict(fn)

@@ -10,9 +10,9 @@ type Callback interface {
 	OnRetry(count int64, delay time.Duration, err error)
 }
 
-// ResultInterface 接口定义了执行结果的相关方法
-// The ResultInterface interface defines methods related to execution results
-type ResultInterface = interface {
+// RetryResult 接口定义了执行结果的相关方法
+// The RetryResult interface defines methods related to execution results
+type RetryResult = interface {
 	// Data 方法返回执行结果的数据
 	// The Data method returns the data of the execution result
 	Data() any

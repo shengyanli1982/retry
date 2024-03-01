@@ -17,7 +17,7 @@ func (cb *callback) OnRetry(count int64, delay time.Duration, err error) {
 	fmt.Println("OnRetry", count, delay.String(), err)
 }
 
-func TestRetryDo(t *testing.T) {
+func TestRetry_Do(t *testing.T) {
 	m := map[error]uint64{}
 	e := errors.New("test")
 	m[e] = 1
@@ -46,7 +46,7 @@ func TestRetryDo(t *testing.T) {
 
 }
 
-func TestRetryDoWithDefault(t *testing.T) {
+func TestRetry_DoWithDefault(t *testing.T) {
 	m := map[error]uint64{}
 	e := errors.New("test")
 	m[e] = 1
@@ -72,7 +72,7 @@ func TestRetryDoWithDefault(t *testing.T) {
 	assert.Equal(t, result.Count(), int64(2))
 }
 
-func TestRetryTryOnConflictSuccess(t *testing.T) {
+func TestRetry_TryOnConflictSuccess(t *testing.T) {
 	r := New(nil)
 	assert.NotNil(t, r)
 
@@ -80,14 +80,14 @@ func TestRetryTryOnConflictSuccess(t *testing.T) {
 		return "lee", nil
 	}
 
-	result := r.TryOnConflict(testFunc)
+	result := r.TryOnConflictVal(testFunc)
 	assert.NotNil(t, result)
 
 	assert.Equal(t, result.IsSuccess(), true)
 	assert.Equal(t, result.Data(), "lee")
 	assert.Equal(t, result.Count(), int64(1))
 }
-func TestRetryTryOnConflictContext(t *testing.T) {
+func TestRetry_TryOnConflictContext(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
 
@@ -100,14 +100,14 @@ func TestRetryTryOnConflictContext(t *testing.T) {
 		return nil, errors.New("test")
 	}
 
-	result := r.TryOnConflict(testFunc)
+	result := r.TryOnConflictVal(testFunc)
 	assert.NotNil(t, result)
 
 	assert.Equal(t, result.TryError(), context.Canceled)
 	assert.Equal(t, result.Count(), int64(0))
 }
 
-func TestRetryTryOnConflictCancelContext(t *testing.T) {
+func TestRetry_TryOnConflictCancelContext(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
 
@@ -120,14 +120,14 @@ func TestRetryTryOnConflictCancelContext(t *testing.T) {
 		return "lee", nil
 	}
 
-	result := r.TryOnConflict(testFunc)
+	result := r.TryOnConflictVal(testFunc)
 	assert.NotNil(t, result)
 
 	assert.Equal(t, result.TryError(), context.Canceled)
 	assert.Equal(t, result.Count(), int64(0))
 }
 
-func TestRetryTryOnConflictCallback(t *testing.T) {
+func TestRetry_TryOnConflictCallback(t *testing.T) {
 	cfg := NewConfig().WithDetail(true).WithAttempts(5).WithCallback(&callback{})
 	e := errors.New("test")
 
@@ -138,7 +138,7 @@ func TestRetryTryOnConflictCallback(t *testing.T) {
 		return nil, e
 	}
 
-	result := r.TryOnConflict(testFunc)
+	result := r.TryOnConflictVal(testFunc)
 	assert.NotNil(t, result)
 
 	assert.Equal(t, result.IsSuccess(), false)
@@ -149,7 +149,7 @@ func TestRetryTryOnConflictCallback(t *testing.T) {
 	assert.Equal(t, result.Count(), int64(5))
 }
 
-func TestRetryTryOnConflictRetryIf(t *testing.T) {
+func TestRetry_TryOnConflictRetryIf(t *testing.T) {
 	e := errors.New("test")
 
 	retryIf := func(err error) bool {
@@ -165,14 +165,14 @@ func TestRetryTryOnConflictRetryIf(t *testing.T) {
 		return nil, e
 	}
 
-	result := r.TryOnConflict(testFunc)
+	result := r.TryOnConflictVal(testFunc)
 	assert.NotNil(t, result)
 
 	assert.Equal(t, result.TryError(), ErrorRetryIf)
 	assert.Equal(t, result.Count(), int64(1))
 }
 
-func TestRetryTryOnConflictRetryIfExceeded(t *testing.T) {
+func TestRetry_TryOnConflictRetryIfExceeded(t *testing.T) {
 	cfg := NewConfig().WithAttempts(2)
 
 	r := New(cfg)
@@ -182,14 +182,14 @@ func TestRetryTryOnConflictRetryIfExceeded(t *testing.T) {
 		return nil, errors.New("test")
 	}
 
-	result := r.TryOnConflict(testFunc)
+	result := r.TryOnConflictVal(testFunc)
 	assert.NotNil(t, result)
 
 	assert.Equal(t, result.TryError(), ErrorRetryAttemptsExceeded)
 	assert.Equal(t, result.Count(), int64(2))
 }
 
-func TestRetryTryOnConflictAttemptsByError(t *testing.T) {
+func TestRetry_TryOnConflictAttemptsByError(t *testing.T) {
 	m := map[error]uint64{}
 	e := errors.New("test")
 	m[e] = 1
@@ -203,14 +203,14 @@ func TestRetryTryOnConflictAttemptsByError(t *testing.T) {
 		return nil, e
 	}
 
-	result := r.TryOnConflict(testFunc)
+	result := r.TryOnConflictVal(testFunc)
 	assert.NotNil(t, result)
 
 	assert.Equal(t, result.TryError(), ErrorRetryAttemptsByErrorExceeded)
 	assert.Equal(t, result.Count(), int64(2))
 }
 
-func TestRetryTryOnConflictAttemptsExceeded(t *testing.T) {
+func TestRetry_TryOnConflictAttemptsExceeded(t *testing.T) {
 	cfg := NewConfig().WithAttempts(2)
 
 	r := New(cfg)
@@ -220,14 +220,14 @@ func TestRetryTryOnConflictAttemptsExceeded(t *testing.T) {
 		return nil, errors.New("test")
 	}
 
-	result := r.TryOnConflict(testFunc)
+	result := r.TryOnConflictVal(testFunc)
 	assert.NotNil(t, result)
 
 	assert.Equal(t, result.TryError(), ErrorRetryAttemptsExceeded)
 	assert.Equal(t, result.Count(), int64(2))
 }
 
-func TestRetryTryOnConflictMultiRetryableFuncs(t *testing.T) {
+func TestRetry_TryOnConflictMultiRetryableFuncs(t *testing.T) {
 	cfg := NewConfig().WithCallback(&callback{})
 
 	r := New(cfg)
@@ -241,18 +241,18 @@ func TestRetryTryOnConflictMultiRetryableFuncs(t *testing.T) {
 		return nil, errors.New("testFunc2")
 	}
 
-	result := r.TryOnConflict(testFunc1)
+	result := r.TryOnConflictVal(testFunc1)
 	assert.NotNil(t, result)
 	assert.Equal(t, result.TryError(), ErrorRetryAttemptsExceeded)
 	assert.Equal(t, result.Count(), int64(defaultAttempts))
 
-	result = r.TryOnConflict(testFunc2)
+	result = r.TryOnConflictVal(testFunc2)
 	assert.NotNil(t, result)
 	assert.Equal(t, result.TryError(), ErrorRetryAttemptsExceeded)
 	assert.Equal(t, result.Count(), int64(defaultAttempts))
 }
 
-func TestRetryTryOnConflictMultiRetryableFuncsParallel(t *testing.T) {
+func TestRetry_TryOnConflictMultiRetryableFuncsParallel(t *testing.T) {
 	cfg := NewConfig().WithCallback(&callback{})
 
 	r := New(cfg)
@@ -271,7 +271,7 @@ func TestRetryTryOnConflictMultiRetryableFuncsParallel(t *testing.T) {
 
 	go func() {
 		defer wg.Done()
-		result1 := r.TryOnConflict(testFunc1)
+		result1 := r.TryOnConflictVal(testFunc1)
 		assert.NotNil(t, result1)
 		assert.Equal(t, result1.TryError(), ErrorRetryAttemptsExceeded)
 		assert.Equal(t, result1.Count(), int64(defaultAttempts))
@@ -279,7 +279,7 @@ func TestRetryTryOnConflictMultiRetryableFuncsParallel(t *testing.T) {
 
 	go func() {
 		defer wg.Done()
-		result2 := r.TryOnConflict(testFunc2)
+		result2 := r.TryOnConflictVal(testFunc2)
 		assert.NotNil(t, result2)
 		assert.Equal(t, result2.TryError(), ErrorRetryAttemptsExceeded)
 		assert.Equal(t, result2.Count(), int64(defaultAttempts))
