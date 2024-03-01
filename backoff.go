@@ -6,51 +6,51 @@ import (
 	"time"
 )
 
-// 基准时间间隔
-// Base time interval
+// 定义基础时间单位
+// Define the base time unit
 const baseTimeDuration = 100 * time.Millisecond
 
-// 用于计算重试间隔
-// Used to calculate the retry interval.
+// BackoffFunc 类型定义了一个接受整数并返回时间间隔的函数类型
+// The BackoffFunc type defines a function type that accepts an integer and returns a time interval
 type BackoffFunc = func(int64) time.Duration
 
-// FixBackOff 方法用于固定间隔重试
-// The FixBackOff method is used to retry at a fixed interval.
+// FixBackOff 函数返回一个固定的时间间隔
+// The FixBackOff function returns a fixed time interval
 func FixBackOff(delay int64) time.Duration {
 	return time.Duration(delay) * baseTimeDuration
 }
 
-// RandomBackOff 方法用于随机间隔重试
-// The RandomBackOff method is used to retry at a random interval.
+// RandomBackOff 函数返回一个随机的时间间隔
+// The RandomBackOff function returns a random time interval
 func RandomBackOff(delay int64) time.Duration {
 	return time.Duration(rand.Int63n(delay)) * baseTimeDuration
 }
 
-// ExponentialBackOff 方法用于指数间隔重试
-// The ExponentialBackOff method is used to retry at an exponential interval.
+// ExponentialBackOff 函数返回一个指数增长的时间间隔
+// The ExponentialBackOff function returns an exponentially increasing time interval
 func ExponentialBackOff(delay int64) time.Duration {
 	return time.Duration(int64(math.Exp2(float64(delay)))) * baseTimeDuration
 }
 
-// CombineBackOffs 方法用于组合多个重试间隔
-// The CombineBackOffs method is used to combine multiple retry intervals.
+// CombineBackOffs 函数组合多个退避函数，并返回一个新的退避函数
+// The CombineBackOffs function combines multiple backoff functions and returns a new backoff function
 func CombineBackOffs(backoffs ...BackoffFunc) BackoffFunc {
 	return func(n int64) time.Duration {
 		var delay time.Duration
-		// 依次计算每个重试间隔，并行性相加
-		// Calculate each retry interval in turn and add it in parallel.
+		// 对每个退避函数进行调用，并累加它们的结果
+		// Call each backoff function and accumulate their results
 		for _, backoff := range backoffs {
 			delay += backoff(n)
 		}
 
-		// 如果重试间隔小于等于 0，则返回默认重试间隔
-		// If the retry interval is less than or equal to 0, the default retry interval is returned.
+		// 如果计算出的延迟时间小于等于0，则返回默认的延迟时间
+		// If the calculated delay time is less than or equal to 0, return the default delay time
 		if delay <= 0 {
 			return defaultDelay
 		}
 
-		// 返回重试间隔
-		// Return the retry interval.
+		// 返回计算出的延迟时间
+		// Return the calculated delay time
 		return delay
 	}
 }
