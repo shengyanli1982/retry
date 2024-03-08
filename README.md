@@ -1,7 +1,7 @@
 <div align="center">
 	<h1>Retry</h1>
+    <p>A simple, dependency-free module for effortless function retrying in various scenarios.</p>
 	<img src="assets/logo.png" alt="logo" width="300px">
-    <h4>A lightweight function retrying module</h4>
 </div>
 
 # Introduction
