@@ -87,8 +87,8 @@ type Retry struct {
 	config *Config // 重试的配置 Retry configuration
 }
 
-// New 函数用于创建一个新的 Retry 实例
-// The New function is used to create a new Retry instance
+// New 函数用于创建一个新的 Retry 实例。它接受一个 Config 结构体作为参数，该结构体包含了重试的配置信息。
+// The New function is used to create a new Retry instance. It accepts a Config structure as a parameter, which contains the configuration information for retrying.
 func New(conf *Config) *Retry {
 	conf = isConfigValid(conf)
 	return &Retry{config: conf}
@@ -97,33 +97,39 @@ func New(conf *Config) *Retry {
 // TryOnConflict 方法尝试执行 fn 函数，如果遇到冲突则进行重试
 // The TryOnConflict method attempts to execute the fn function, and retries if a conflict is encountered
 func (r *Retry) TryOnConflict(fn RetryableFunc) *Result {
-	// 如果 fn 函数为空，则返回 nil
-	// If the fn function is null, return nil
+	// 如果 fn 函数为空，则返回 nil。这是因为没有函数可以执行，所以没有必要进行重试。
+	// If the fn function is null, return nil. This is because there is no function to execute, so there is no need to retry.
 	if fn == nil {
 		return nil
 	}
 
-	// 创建一个新的定时器
-	// Create a new timer
+	// 创建一个新的定时器，定时器的延迟时间是 Config 中配置的延迟时间。定时器用于控制重试的间隔。
+	// Create a new timer. The delay time of the timer is the delay time configured in Config. The timer is used to control the interval between retries.
 	tr := time.NewTimer(r.config.delay)
+
+	// 使用 defer 关键字确保定时器在函数结束时停止，避免资源泄露。
+	// Use the defer keyword to ensure that the timer stops when the function ends, to avoid resource leaks.
 	defer tr.Stop()
 
-	// 创建一个新的 Result 实例来存储执行结果
-	// Create a new Result instance to store the execution result
+	// 创建一个新的 Result 实例来存储执行结果。Result 结构体包含了执行的结果和错误信息。
+	// Create a new Result instance to store the execution result. The Result structure contains the execution result and error information.
 	result := NewResult()
 
-	// 循环尝试执行 fn 函数
-	// Loop to try to execute the fn function
+	// 循环尝试执行 fn 函数，直到满足退出条件
+	// Loop to try to execute the fn function until the exit condition is met
 	for {
 		select {
-		// 如果上下文已完成，则返回结果
-		// If the context is done, return the result
+		// 如果上下文已完成（例如，超时或手动取消），则将上下文的错误设置为结果的错误，并返回结果
+		// If the context is done (for example, timeout or manually cancelled), set the error of the context as the error of the result and return the result
 		case <-r.config.ctx.Done():
 			result.tryError = r.config.ctx.Err()
 			return result
-		// 如果定时器到时，则尝试执行 fn 函数
-		// If the timer is up, try to execute the fn function
+
+		// 如果定时器到时，则尝试执行 fn 函数。定时器的时间间隔由 Config 中的退避函数和抖动决定。
+		// If the timer is up, try to execute the fn function. The time interval of the timer is determined by the backoff function and jitter in Config.
 		case <-tr.C:
+			// 调用 fn 函数，获取返回的数据和错误
+			// Call the fn function to get the returned data and error
 			data, err := fn()
 
 			// 增加执行次数
@@ -133,54 +139,87 @@ func (r *Retry) TryOnConflict(fn RetryableFunc) *Result {
 			// 如果没有错误，则返回结果
 			// If there is no error, return the result
 			if err == nil {
+				// 将数据和错误（此时为 nil）设置到结果中
+				// Set the data and error (which is nil at this time) to the result
 				result.data = data
 				result.tryError = err
+
+				// 返回结果
+				// Return the result
 				return result
 			}
 
 			// 如果需要详细信息，则添加执行错误
 			// If details are needed, add execution errors
 			if r.config.detail {
+				// 将错误添加到结果的执行错误列表中
+				// Add the error to the execution error list of the result
 				result.execErrors = append(result.execErrors, err)
 			}
 
 			// 如果不需要重试，则返回结果
 			// If no retry is needed, return the result
 			if !r.config.retryIfFunc(err) {
+				// 将错误设置到结果中
+				// Set the error to the result
 				result.tryError = ErrorRetryIf
+
+				// 返回结果
+				// Return the result
 				return result
 			}
-
-			// 计算下一次重试的延迟时间
-			// Calculate the delay time for the next retry
+			// 计算下一次重试的延迟时间，这里使用了一个随机的抖动和重试次数的乘积作为因子
+			// Calculate the delay time for the next retry, here a random jitter and the product of the number of retries are used as factors
 			delay := int64(rand.Float64()*float64(r.config.jitter) + float64(result.count)*r.config.factor)
 
-			// 如果延迟时间小于等于 0，则设置为默认延迟时间
-			// If the delay time is less than or equal to 0, set it to the default delay time
+			// 如果计算出的延迟时间小于等于 0，则设置为默认的延迟时间
+			// If the calculated delay time is less than or equal to 0, set it to the default delay time
 			if delay <= 0 {
 				delay = defaultDelayNum
 			}
 
-			// 计算退避时间并调用回调函数
-			// Calculate the backoff time and call the callback function
+			// 计算退避时间，这里使用了配置中的退避函数和延迟时间
+			// Calculate the backoff time, here the backoff function and delay time in the configuration are used
 			backoff := r.config.backoffFunc(int64(delay)) + r.config.delay
+
+			// 调用配置中的回调函数，传入重试次数、退避时间和错误
+			// Call the callback function in the configuration, passing in the number of retries, backoff time, and error
 			r.config.callback.OnRetry(int64(result.count), backoff, err)
 
+			// 首先，我们检查特定错误的重试次数是否已经超过限制
+			// First, we check if the retry count for a specific error has exceeded the limit
 			// 如果错误次数超过限制，则返回结果
 			// If the number of errors exceeds the limit, return the result
 			if errAttempts, ok := r.config.attemptsByError[err]; ok {
+				// 如果特定错误的重试次数已经用完，则返回一个错误，表示按错误类型的重试次数已经超过
+				// If the retry count for a specific error has been used up, return an error indicating that the retry count by error type has been exceeded
 				if errAttempts <= 0 {
+					// 将错误设置到结果中，这个错误表示特定错误的重试次数已经超过了限制
+					// Set the error to the result, this error indicates that the retry count for a specific error has exceeded the limit
 					result.tryError = ErrorRetryAttemptsByErrorExceeded
+
+					// 返回结果，这个结果包含了执行的次数、最后一次的错误和尝试的错误
+					// Return the result, this result includes the number of executions, the last error, and the attempted error
 					return result
 				}
+
+				// 如果还有剩余的重试次数，则减少一次重试次数，并更新到配置中
+				// If there are remaining retry counts, decrease the retry count by one and update it in the configuration
 				errAttempts--
 				r.config.attemptsByError[err] = errAttempts
 			}
 
+			// 然后，我们检查总的执行次数是否已经超过限制
+			// Then, we check if the total number of executions has exceeded the limit
 			// 如果执行次数超过限制，则返回结果
 			// If the number of executions exceeds the limit, return the result
 			if result.count >= r.config.attempts {
+				// 将错误设置到结果中，这个错误表示总的执行次数已经超过了限制
+				// Set the error to the result, this error indicates that the total number of executions has exceeded the limit
 				result.tryError = ErrorRetryAttemptsExceeded
+
+				// 返回结果，这个结果包含了执行的次数、最后一次的错误和尝试的错误
+				// Return the result, this result includes the number of executions, the last error, and the attempted error
 				return result
 			}
 

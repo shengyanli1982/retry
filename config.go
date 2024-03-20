@@ -19,8 +19,13 @@ const (
 // 定义默认的重试条件函数和退避函数
 // Define the default retry condition function and backoff function
 var (
-	defaultRetryIfFunc = func(error) bool { return true } // 默认的重试条件函数，对所有错误都进行重试
-	defaultBackoffFunc = func(n int64) time.Duration {    // 默认的退避函数，使用指数退避和随机退避的组合
+	// defaultRetryIfFunc 是默认的重试条件函数，对所有错误都进行重试
+	// defaultRetryIfFunc is the default retry condition function, which retries for all errors
+	defaultRetryIfFunc = func(error) bool { return true }
+
+	// defaultBackoffFunc 是默认的退避函数，使用指数退避和随机退避的组合
+	// defaultBackoffFunc is the default backoff function, which combines exponential backoff and random backoff
+	defaultBackoffFunc = func(n int64) time.Duration {
 		return CombineBackOffs(ExponentialBackOff, RandomBackOff)(n)
 	}
 )
@@ -148,38 +153,68 @@ func (c *Config) WithDetail(detail bool) *Config {
 // isConfigValid 函数检查 Config 是否有效，如果无效则使用默认值
 // The isConfigValid function checks whether the Config is valid, and uses the default value if it is invalid
 func isConfigValid(conf *Config) *Config {
+	// 如果 conf 为 nil，则创建一个新的 Config 实例
+	// If conf is nil, create a new Config instance
 	if conf == nil {
 		conf = NewConfig()
 	} else {
+		// 如果 conf.ctx 为 nil，则设置为默认的上下文
+		// If conf.ctx is nil, set it to the default context
 		if conf.ctx == nil {
 			conf.ctx = context.Background()
 		}
+
+		// 如果 conf.callback 为 nil，则设置为默认的回调函数
+		// If conf.callback is nil, set it to the default callback function
 		if conf.callback == nil {
 			conf.callback = NewEmptyCallback()
 		}
+
+		// 如果 conf.attempts 不在有效范围内，则设置为默认的重试次数
+		// If conf.attempts is not within the valid range, set it to the default number of retries
 		if conf.attempts <= 0 || conf.attempts >= math.MaxUint16 {
 			conf.attempts = defaultAttempts
 		}
+
+		// 如果 conf.attemptsByError 为 nil，则初始化为一个空的映射
+		// If conf.attemptsByError is nil, initialize it to an empty map
 		if conf.attemptsByError == nil {
 			conf.attemptsByError = make(map[error]uint64)
 		}
+
+		// 如果 conf.factor 小于 0，则设置为默认的退避因子
+		// If conf.factor is less than 0, set it to the default backoff factor
 		if conf.factor < 0 {
 			conf.factor = defaultFactor
 		}
+
+		// 如果 conf.delay 小于等于 0，则设置为默认的延迟时间
+		// If conf.delay is less than or equal to 0, set it to the default delay time
 		if conf.delay <= 0 {
 			conf.delay = defaultDelay
 		}
+
+		// 如果 conf.jitter 小于 0，则设置为默认的抖动
+		// If conf.jitter is less than 0, set it to the default jitter
 		if conf.jitter < 0 {
 			conf.jitter = defaultJitter
 		}
+
+		// 如果 conf.retryIfFunc 为 nil，则设置为默认的重试条件函数
+		// If conf.retryIfFunc is nil, set it to the default retry condition function
 		if conf.retryIfFunc == nil {
 			conf.retryIfFunc = defaultRetryIfFunc
 		}
+
+		// 如果 conf.backoffFunc 为 nil，则设置为默认的退避函数
+		// If conf.backoffFunc is nil, set it to the default backoff function
 		if conf.backoffFunc == nil {
 			conf.backoffFunc = defaultBackoffFunc
 		}
 	}
 
+	// 返回检查并修正后的 Config 实例
+	// Return the checked and corrected Config instance
 	return conf
 }
 

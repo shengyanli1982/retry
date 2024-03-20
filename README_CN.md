@@ -1,97 +1,97 @@
-English | [中文](./README_CN.md)
+[English](./README.md) | 中文
 
 <div align="center">
 	<h1>Retry</h1>
-    <p>A simple, dependency-free module for effortless function retrying in various scenarios.</p>
+	<p>一个简单、无依赖的 Go 函数执行模块，用于在各种场景下轻松进行函数重试。</p>
 	<img src="assets/logo.png" alt="logo" width="350px">
 </div>
 
-# Introduction
+# 介绍
 
-`Retry` is a lightweight module for retrying function calls. It is simple, easy to use, and has no third-party dependencies. It is designed for scenarios where you need to retry a function call.
+`Retry` 是一个轻量级的函数重试模块。它简单易用，没有第三方依赖。它专为需要重试函数调用的场景而设计。
 
-`Retry` provides the following features:
+`Retry` 提供以下功能：
 
-1. Retry a function call a specified number of times.
-2. Retry a function call a specified number of times for specific errors.
-3. Support action callback functions.
-4. Support jitter factor for delay.
-5. Support exponential backoff delay, random delay, and fixed delay.
-6. Support recording detailed errors for each failed retry.
+1. 可以指定重试函数调用的次数。
+2. 可以指定特定错误的重试次数。
+3. 支持回调函数。
+4. 支持延迟的抖动因子。
+5. 支持指数退避延迟、随机延迟和固定延迟。
+6. 支持记录每次失败重试的详细错误信息。
 
-# Advantages
+# 优势
 
--   Simple and user-friendly
--   No external dependencies required
--   Efficient memory usage
--   Supports callback functions
+-   简单易用
+-   无需外部依赖
+-   内存使用高效
+-   支持回调函数
 
-# Installation
+# 安装
 
 ```bash
 go get github.com/shengyanli1982/retry
 ```
 
-# Quick Start
+# 快速入门
 
-Using `Retry` is simple. Just one line of code is needed to retry a function call.
+使用 `Retry` 很简单。只需要一行代码就可以重试函数调用。
 
-## 1. Normal Model
+## 1. 普通模式
 
-### Config
+### 配置
 
-`Retry` provides a config object to customize the retry behavior. The config object has the following fields:
+`Retry` 提供了一个配置对象来自定义重试行为。配置对象具有以下字段：
 
--   `ctx`: The context.Context object. The default value is `context.Background()`.
--   `callback`: The callback function. The default value is `&emptyCallback{}`.
--   `attempts`: The number of retry attempts. The default value is `3`.
--   `attemptsByErrors`: The number of retry attempts for specific errors. The default value is `map[error]uint64{}`.
--   `delay`: The delay time between retries. The default value is `200ms`.
--   `factor`: The retry times factor. The default value is `1.0`.
--   `retryIf`: The function to determine whether to retry. The default value is `defaultRetryIfFunc`.
--   `backoff`: The backoff function. The default value is `defaultBackoffFunc`.
--   `detail`: Whether to record detailed errors. The default value is `false`.
+-   `ctx`：上下文对象 `context.Context`。默认值为 `context.Background()`。
+-   `callback`：回调函数。默认值为 `&emptyCallback{}`。
+-   `attempts`：重试次数。默认值为 `3`。
+-   `attemptsByErrors`：特定错误的重试次数。默认值为 `map[error]uint64{}`。
+-   `delay`：重试之间的延迟时间。默认值为 `200ms`。
+-   `factor`：重试次数的因子。默认值为 `1.0`。
+-   `retryIf`：确定是否重试的函数。默认值为 `defaultRetryIfFunc`。
+-   `backoff`：退避函数。默认值为 `defaultBackoffFunc`。
+-   `detail`：是否记录详细错误信息。默认值为 `false`。
 
-You can use the following methods to set config values:
+您可以使用以下方法来设置配置值：
 
--   `WithContext`: Set the context.Context object.
--   `WithCallback`: Set the callback function.
--   `WithAttempts`: Set the number of retry attempts.
--   `WithAttemptsByError`: Set the number of retry attempts for specific errors.
--   `WithDelay`: Set the delay time for the first retry.
--   `WithFactor`: Set the retry times factor.
--   `WithRetryIfFunc`: Set the function to determine whether to retry.
--   `WithBackOffFunc`: Set the backoff function.
--   `WithDetail`: Set whether to record detailed errors.
+-   `WithContext`：设置上下文对象 `context.Context`。
+-   `WithCallback`：设置回调函数。
+-   `WithAttempts`：设置重试次数。
+-   `WithAttemptsByError`：设置特定错误的重试次数。
+-   `WithDelay`：设置第一次重试的延迟时间。
+-   `WithFactor`：设置重试次数的因子。
+-   `WithRetryIfFunc`：设置确定是否重试的函数。
+-   `WithBackOffFunc`：设置退避函数。
+-   `WithDetail`：设置是否记录详细错误信息。
 
 > [!NOTE]
-> The backoff algorithm determines the delay time between retries. `Retry` supports three backoff algorithms: exponential backoff, random backoff, and fixed backoff. By default, `Retry` uses exponential backoff with random backoff values added to the delay time.
+> 退避算法决定了重试之间的延迟时间。`Retry` 支持三种退避算法：指数退避、随机退避和固定退避。默认情况下，`Retry` 使用指数退避与随机退避值之和。
 >
-> You can use the `WithBackOffFunc` method to set the backoff algorithm.
+> 您可以使用 `WithBackOffFunc` 方法来设置退避算法。
 >
 > **eg**: backoff = backoffFunc(factor \* count + jitter \* rand.Float64()) \* 100 \* Millisecond + delay
 
-### Methods
+### 方法
 
--   `Do`: Retry a function call by specifying a config object and a function. It returns a `Result` object.
--   `DoWithDefault`: Retry a function call with default config values. It returns a `Result` object.
+-   `Do`: 通过指定配置对象和函数来重试函数调用。它返回一个 `Result` 对象。
+-   `DoWithDefault`: 使用默认配置值来重试函数调用。它返回一个 `Result` 对象。
 
 > [!TIP]
-> The `Result` object contains the result of the function call, the error of the last retry, the errors of all retries, and whether the retry was successful. If the function call fails, the default value will be returned.
+> 在 `Result` 对象内包含函数调用的结果、最后一次重试的错误、所有重试的错误以及重试是否成功。如果函数调用失败，将返回默认值。
 
-### Exec Result
+### 执行结果
 
-After retrying, `Retry` returns a `Result` object. The `Result` object provides the following methods:
+在重试之后，`Retry` 返回一个 `Result` 对象。`Result` 对象提供以下方法：
 
--   `Data`: Get the result of the successfully called function. The type is `interface{}`.
--   `TryError`: Get the error of the retry action. If the retry is successful, the value is `nil`.
--   `ExecErrors`: Get the errors of all retries.
--   `IsSuccess`: Check if the retry action was successful.
--   `LastExecError`: Get the last error of the retries.
--   `FirstExecError`: Get the first error of the retries.
--   `ExecErrorByIndex`: Get the error of a specific retry by index.
+-   `Data`: 获取成功调用函数的结果。类型为 `interface{}`。
+-   `TryError`: 获取重试操作的错误。如果重试成功，则值为 `nil`。
+-   `ExecErrors`: 获取所有重试的错误。
+-   `IsSuccess`: 检查重试操作是否成功。
+-   `LastExecError`: 获取最后一次重试的错误。
+-   `FirstExecError`: 获取第一次重试的错误。
+-   `ExecErrorByIndex`: 通过索引获取特定重试的错误。
 
-### Example
+### 示例
 
 ```go
 package main
@@ -143,13 +143,13 @@ execErrors: []
 isSuccess: true
 ```
 
-## 2. Factory Model
+## 2. 工厂模式
 
-The Factory Model provides all the same retry functions and features as the Normal Model. It uses the same `Config`, `Methods`, `Result`, and `Callback`.
+工厂模式提供了与普通模式相同的重试函数和功能。它使用相同的 `Config`、`Methods`、`Result` 和 `Callback`。
 
-The only difference is that the `Retry` object is created using the `New` method. Then you can use the `TryOnConflict` method to retry the function call with the same parameters.
+唯一的区别是使用 `New` 方法创建 `Retry` 对象，然后可以使用 `TryOnConflict` 方法以相同的参数重试函数调用。
 
-### Example
+### 示例
 
 ```go
 package main
@@ -248,22 +248,22 @@ execErrors: []
 isSuccess: false
 ```
 
-# Features
+# 特性
 
-`Retry` provides a set of features that are sufficient for most services.
+`Retry` 提供了一组足够满足大多数服务需求的特性。
 
-## 1. Callback
+## 1. 回调函数
 
-`Retry` supports callback functions. You can specify a callback function when creating a retry, and it will be called when the `Retry` performs certain actions.
+`Retry` 支持回调函数。在创建重试实例时，您可以指定一个回调函数，当 `Retry` 执行特定操作时，该函数将被调用。
 
 > [!TIP]
-> Callback functions are optional. If you don't need a callback function, you can pass `nil` when creating a retry, and it won't be called.
+> 回调函数是可选的。如果您不需要回调函数，可以在创建重试实例时传递 `nil`，它将不会被调用。
 >
-> You can use the `WithCallback` method to set a callback function.
+> 您可以使用 `WithCallback` 方法来设置回调函数。
 
-The callback function has the following methods:
+回调函数具有以下方法：
 
--   `OnRetry`: called when retrying. The `count` parameter represents the current retry count, the `delay` parameter represents the delay time for the next retry, and the `err` parameter represents the error from the last retry.
+-   `OnRetry`：在重试时调用。`count` 参数表示当前重试次数，`delay` 参数表示下一次重试的延迟时间，`err` 参数表示上一次重试的错误信息。
 
     ```go
     // Callback 接口用于定义重试回调函数
@@ -275,7 +275,7 @@ The callback function has the following methods:
     }
     ```
 
-### Example
+### 示例
 
 ```go
 package main
