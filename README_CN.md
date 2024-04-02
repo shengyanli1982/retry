@@ -6,6 +6,10 @@
 	<img src="assets/logo.png" alt="logo" width="350px">
 </div>
 
+[![Go Report Card](https://goreportcard.com/badge/github.com/shengyanli1982/retry)](https://goreportcard.com/report/github.com/shengyanli1982/retry)
+[![Build Status](https://github.com/shengyanli1982/retry/actions/workflows/test.yaml/badge.svg)](github.com/shengyanli1982/retry/actions)
+[![Go Reference](https://pkg.go.dev/badge/github.com/shengyanli1982/retry.svg)](https://pkg.go.dev/github.com/shengyanli1982/retry)
+
 # 介绍
 
 `Retry` 是一个轻量级的函数重试模块。它简单易用，没有第三方依赖。它专为需要重试函数调用的场景而设计。
