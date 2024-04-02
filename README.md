@@ -6,6 +6,10 @@ English | [中文](./README_CN.md)
 	<img src="assets/logo.png" alt="logo" width="350px">
 </div>
 
+[![Go Report Card](https://goreportcard.com/badge/github.com/shengyanli1982/retry)](https://goreportcard.com/report/github.com/shengyanli1982/retry)
+[![Build Status](https://github.com/shengyanli1982/retry/actions/workflows/test.yaml/badge.svg)](github.com/shengyanli1982/retry/actions)
+[![Go Reference](https://pkg.go.dev/badge/github.com/shengyanli1982/retry.svg)](https://pkg.go.dev/github.com/shengyanli1982/retry)
+
 # Introduction
 
 `Retry` is a lightweight module for retrying function calls. It is simple, easy to use, and has no third-party dependencies. It is designed for scenarios where you need to retry a function call.
