@@ -3,54 +3,86 @@ package retry
 import (
 	"math"
 	"math/rand"
+	"sync"
 	"time"
 )
 
-// 定义基础时间单位
-// Define the base time unit
-const baseTimeDuration = 100 * time.Millisecond
+const (
+	// 基础时间单位为100毫秒
+	// Base time unit is 100 milliseconds
+	baseInterval = 100 * time.Millisecond
 
-// BackoffFunc 类型定义了一个接受整数并返回时间间隔的函数类型
-// The BackoffFunc type defines a function type that accepts an integer and returns a time interval
+	// 防止 time.Duration 溢出的最大指数值
+	// Maximum exponent to prevent time.Duration overflow
+	maxExponent = 62
+)
+
+var (
+	// 使用独立的随机数生成器，避免全局锁竞争
+	// Use a separate random number generator to avoid global lock contention
+	randGen = rand.New(rand.NewSource(time.Now().UnixNano()))
+	randMu  sync.Mutex
+)
+
+// BackoffFunc 定义了退避策略函数的类型
+// BackoffFunc defines the type for backoff strategy functions
 type BackoffFunc = func(int64) time.Duration
 
-// FixBackOff 函数返回一个固定的时间间隔
-// The FixBackOff function returns a fixed time interval
-func FixBackOff(delay int64) time.Duration {
-	return time.Duration(delay) * baseTimeDuration
+// FixedBackoff 返回固定时间间隔的退避策略
+// FixedBackoff returns a fixed-interval backoff strategy
+func FixedBackoff(interval int64) time.Duration {
+	if interval <= 0 {
+		return defaultDelay
+	}
+	return time.Duration(interval) * baseInterval
 }
 
-// RandomBackOff 函数返回一个随机的时间间隔
-// The RandomBackOff function returns a random time interval
-func RandomBackOff(delay int64) time.Duration {
-	return time.Duration(rand.Int63n(delay)) * baseTimeDuration
+// RandomBackoff 返回随机时间间隔的退避策略
+// RandomBackoff returns a random-interval backoff strategy
+func RandomBackoff(maxInterval int64) time.Duration {
+	if maxInterval <= 0 {
+		return defaultDelay
+	}
+
+	randMu.Lock()
+	interval := randGen.Int63n(maxInterval)
+	randMu.Unlock()
+
+	return time.Duration(interval) * baseInterval
 }
 
-// ExponentialBackOff 函数返回一个指数增长的时间间隔
-// The ExponentialBackOff function returns an exponentially increasing time interval
-func ExponentialBackOff(delay int64) time.Duration {
-	return time.Duration(int64(math.Exp2(float64(delay)))) * baseTimeDuration
+// ExponentialBackoff 返回指数增长的退避策略
+// ExponentialBackoff returns an exponential backoff strategy
+func ExponentialBackoff(power int64) time.Duration {
+	if power <= 0 {
+		return defaultDelay
+	}
+
+	// 限制最大指数以防止溢出
+	// Limit maximum exponent to prevent overflow
+	if power > maxExponent {
+		power = maxExponent
+	}
+
+	return time.Duration(int64(math.Exp2(float64(power)))) * baseInterval
 }
 
-// CombineBackOffs 函数组合多个退避函数，并返回一个新的退避函数
-// The CombineBackOffs function combines multiple backoff functions and returns a new backoff function
-func CombineBackOffs(backoffs ...BackoffFunc) BackoffFunc {
+// CombineBackoffs 将多个退避策略组合成一个
+// CombineBackoffs combines multiple backoff strategies into one
+func CombineBackoffs(backoffs ...BackoffFunc) BackoffFunc {
+	if len(backoffs) == 0 {
+		return FixedBackoff
+	}
+
 	return func(n int64) time.Duration {
-		var delay time.Duration
-		// 对每个退避函数进行调用，并累加它们的结果
-		// Call each backoff function and accumulate their results
+		var totalDelay time.Duration
 		for _, backoff := range backoffs {
-			delay += backoff(n)
+			totalDelay += backoff(n)
 		}
 
-		// 如果计算出的延迟时间小于等于0，则返回默认的延迟时间
-		// If the calculated delay time is less than or equal to 0, return the default delay time
-		if delay <= 0 {
+		if totalDelay <= 0 {
 			return defaultDelay
 		}
-
-		// 返回计算出的延迟时间
-		// Return the calculated delay time
-		return delay
+		return totalDelay
 	}
 }
