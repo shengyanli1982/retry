@@ -26,7 +26,7 @@ var (
 	// defaultBackoffFunc 是默认的退避函数，使用指数退避和随机退避的组合
 	// defaultBackoffFunc is the default backoff function, which combines exponential backoff and random backoff
 	defaultBackoffFunc = func(n int64) time.Duration {
-		return CombineBackOffs(ExponentialBackOff, RandomBackOff)(n)
+		return CombineBackoffs(ExponentialBackoff, RandomBackoff)(n)
 	}
 )
 
@@ -227,5 +227,5 @@ func DefaultConfig() *Config {
 // FixConfig 函数返回一个新的固定退避时间的 Config 实例
 // The FixConfig function returns a new Config instance with a fixed backoff time
 func FixConfig() *Config {
-	return NewConfig().WithBackOffFunc(FixBackOff).WithFactor(0).WithJitter(0)
+	return NewConfig().WithBackOffFunc(FixedBackoff).WithFactor(0).WithJitter(0)
 }

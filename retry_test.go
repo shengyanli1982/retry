@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"math"
 	"sync"
 	"testing"
 	"time"
@@ -286,4 +287,110 @@ func TestRetry_TryOnConflictMultiRetryableFuncsParallel(t *testing.T) {
 	}()
 
 	wg.Wait()
+}
+
+func TestRetry_ZeroConfig(t *testing.T) {
+	cfg := NewConfig()
+	r := New(cfg)
+	assert.NotNil(t, r)
+
+	result := r.TryOnConflictVal(func() (any, error) {
+		return nil, nil
+	})
+
+	assert.True(t, result.IsSuccess())
+	assert.Equal(t, int64(1), result.Count())
+}
+
+func TestRetry_MultipleErrorTypes(t *testing.T) {
+	errType1 := errors.New("type1")
+	errType2 := errors.New("type2")
+
+	m := map[error]uint64{
+		errType1: 2,
+		errType2: 3,
+	}
+
+	cfg := NewConfig().WithAttemptsByError(m).WithDetail(true)
+	r := New(cfg)
+
+	count := 0
+	result := r.TryOnConflictVal(func() (any, error) {
+		count++
+		if count <= 3 {
+			return nil, errType1
+		}
+		return nil, errType2
+	})
+
+	assert.Equal(t, int64(3), result.Count())
+	assert.Equal(t, ErrorRetryAttemptsByErrorExceeded, result.TryError())
+
+	errors := result.ExecErrors()
+	assert.NotNil(t, errors)
+	assert.NotEmpty(t, errors)
+
+	assert.Equal(t, 3, len(errors))
+	for _, err := range errors {
+		assert.Equal(t, errType1, err)
+	}
+}
+
+func TestRetry_ConcurrentStress(t *testing.T) {
+	cfg := NewConfig().WithAttempts(5)
+	r := New(cfg)
+
+	var wg sync.WaitGroup
+	concurrent := 10
+	wg.Add(concurrent)
+
+	for i := 0; i < concurrent; i++ {
+		go func(id int) {
+			defer wg.Done()
+			result := r.TryOnConflictVal(func() (any, error) {
+				if id%2 == 0 {
+					return fmt.Sprintf("success-%d", id), nil
+				}
+				return nil, fmt.Errorf("error-%d", id)
+			})
+
+			if id%2 == 0 {
+				assert.True(t, result.IsSuccess())
+				assert.Equal(t, fmt.Sprintf("success-%d", id), result.Data())
+			} else {
+				assert.False(t, result.IsSuccess())
+			}
+		}(i)
+	}
+
+	wg.Wait()
+}
+
+func TestRetry_ConfigEdgeCases(t *testing.T) {
+	tests := []struct {
+		name     string
+		cfg      *Config
+		expected error
+	}{
+		{
+			name:     "zero attempts",
+			cfg:      NewConfig().WithAttempts(0),
+			expected: ErrorRetryAttemptsExceeded,
+		},
+		{
+			name:     "max attempts",
+			cfg:      NewConfig().WithAttempts(math.MaxUint64),
+			expected: ErrorRetryAttemptsExceeded,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			r := New(tt.cfg)
+			result := r.TryOnConflictVal(func() (any, error) {
+				return nil, errors.New("test")
+			})
+			assert.Equal(t, tt.expected, result.TryError())
+		})
+	}
 }
