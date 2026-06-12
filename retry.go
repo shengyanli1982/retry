@@ -1,7 +1,7 @@
 package retry
 
 import (
-	"math/rand"
+	"fmt"
 	"time"
 )
 
@@ -65,7 +65,7 @@ func (r *Result) FirstExecError() error {
 // ExecErrorByIndex 方法返回指定索引处的执行错误
 // The ExecErrorByIndex method returns the execution error at the specified index
 func (r *Result) ExecErrorByIndex(idx int) error {
-	if len(r.execErrors) >= 0 && idx < len(r.execErrors) {
+	if idx >= 0 && idx < len(r.execErrors) {
 		return r.execErrors[idx]
 	}
 	return ErrorExecErrByIndexOutOfBound
@@ -103,9 +103,16 @@ func (r *Retry) TryOnConflict(fn RetryableFunc) *Result {
 		return nil
 	}
 
-	// 创建一个新的定时器，定时器的延迟时间是 Config 中配置的延迟时间。定时器用于控制重试的间隔。
-	// Create a new timer. The delay time of the timer is the delay time configured in Config. The timer is used to control the interval between retries.
-	tr := time.NewTimer(r.config.delay)
+	// 创建 attemptsByError 的本地副本，避免并发访问共享 map 导致 data race
+	// Create a local copy of attemptsByError to avoid data race when accessing the shared map concurrently
+	localAttemptsByError := make(map[error]uint64, len(r.config.attemptsByError))
+	for k, v := range r.config.attemptsByError {
+		localAttemptsByError[k] = v
+	}
+
+	// 创建一个新的定时器，使用短初始延迟让第一次执行几乎立即进行。定时器用于控制重试的间隔。
+	// Create a new timer with a short initial delay so the first execution happens almost immediately. The timer is used to control the interval between retries.
+	tr := time.NewTimer(0)
 
 	// 使用 defer 关键字确保定时器在函数结束时停止，避免资源泄露。
 	// Use the defer keyword to ensure that the timer stops when the function ends, to avoid resource leaks.
@@ -118,6 +125,15 @@ func (r *Retry) TryOnConflict(fn RetryableFunc) *Result {
 	// 循环尝试执行 fn 函数，直到满足退出条件
 	// Loop to try to execute the fn function until the exit condition is met
 	for {
+		// 非阻塞检查 context 是否已取消，避免 timer(0) 与已取消 context 同时就绪时 select 随机选择通道
+		// Non-blocking check if context is already cancelled, to avoid random channel selection when timer(0) and cancelled context are both ready
+		select {
+		case <-r.config.ctx.Done():
+			result.tryError = r.config.ctx.Err()
+			return result
+		default:
+		}
+
 		select {
 		// 如果上下文已完成（例如，超时或手动取消），则将上下文的错误设置为结果的错误，并返回结果
 		// If the context is done (for example, timeout or manually cancelled), set the error of the context as the error of the result and return the result
@@ -160,27 +176,24 @@ func (r *Retry) TryOnConflict(fn RetryableFunc) *Result {
 			// 如果不需要重试，则返回结果
 			// If no retry is needed, return the result
 			if !r.config.retryIfFunc(err) {
-				// 将错误设置到结果中
-				// Set the error to the result
-				result.tryError = ErrorRetryIf
+				// 将 ErrorRetryIf 与原始错误一起包装到结果中，保留原始错误信息
+				// Wrap ErrorRetryIf together with the original error into the result, preserving the original error information
+				result.tryError = fmt.Errorf("%w: %w", ErrorRetryIf, err)
 
 				// 返回结果
 				// Return the result
 				return result
 			}
-			// 计算下一次重试的延迟时间，这里使用了一个随机的抖动和重试次数的乘积作为因子
-			// Calculate the delay time for the next retry, here a random jitter and the product of the number of retries are used as factors
-			delay := int64(rand.Float64()*float64(r.config.jitter) + float64(result.count)*r.config.factor)
+			// 计算下一次重试的线性延迟部分：随机抖动 + 重试次数 * 因子，再乘以基础延迟时间
+			// Calculate the linear delay component for the next retry: random jitter + retry count * factor, then multiply by base delay
+			randMu.Lock()
+			jitterVal := randGen.Float64()
+			randMu.Unlock()
+			delay := time.Duration(jitterVal*r.config.jitter+float64(result.count)*r.config.factor) * r.config.delay
 
-			// 如果计算出的延迟时间小于等于 0，则设置为默认的延迟时间
-			// If the calculated delay time is less than or equal to 0, set it to the default delay time
-			if delay <= 0 {
-				delay = defaultDelayNum
-			}
-
-			// 计算退避时间，这里使用了配置中的退避函数和延迟时间
-			// Calculate the backoff time, here the backoff function and delay time in the configuration are used
-			backoff := r.config.backoffFunc(int64(delay)) + r.config.delay
+			// 计算退避时间：退避函数接收当前重试次数作为参数，加上线性延迟部分
+			// Calculate the backoff time: backoff function receives the current retry count as parameter, plus the linear delay component
+			backoff := r.config.backoffFunc(int64(result.count)) + delay
 
 			// 调用配置中的回调函数，传入重试次数、退避时间和错误
 			// Call the callback function in the configuration, passing in the number of retries, backoff time, and error
@@ -190,7 +203,7 @@ func (r *Retry) TryOnConflict(fn RetryableFunc) *Result {
 			// First, we check if the retry count for a specific error has exceeded the limit
 			// 如果错误次数超过限制，则返回结果
 			// If the number of errors exceeds the limit, return the result
-			if errAttempts, ok := r.config.attemptsByError[err]; ok {
+			if errAttempts, ok := localAttemptsByError[err]; ok {
 				// 如果特定错误的重试次数已经用完，则返回一个错误，表示按错误类型的重试次数已经超过
 				// If the retry count for a specific error has been used up, return an error indicating that the retry count by error type has been exceeded
 				if errAttempts <= 0 {
@@ -206,7 +219,7 @@ func (r *Retry) TryOnConflict(fn RetryableFunc) *Result {
 				// 如果还有剩余的重试次数，则减少一次重试次数，并更新到配置中
 				// If there are remaining retry counts, decrease the retry count by one and update it in the configuration
 				errAttempts--
-				r.config.attemptsByError[err] = errAttempts
+				localAttemptsByError[err] = errAttempts
 			}
 
 			// 然后，我们检查总的执行次数是否已经超过限制
