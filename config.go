@@ -227,5 +227,7 @@ func DefaultConfig() *Config {
 // FixConfig 函数返回一个新的固定退避时间的 Config 实例
 // The FixConfig function returns a new Config instance with a fixed backoff time
 func FixConfig() *Config {
-	return NewConfig().WithBackOffFunc(FixedBackoff).WithFactor(0).WithJitter(0)
+	return NewConfig().WithBackOffFunc(func(_ int64) time.Duration {
+		return defaultDelay
+	}).WithFactor(0).WithJitter(0)
 }

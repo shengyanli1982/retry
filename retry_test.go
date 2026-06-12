@@ -48,10 +48,7 @@ func TestRetry_Do(t *testing.T) {
 }
 
 func TestRetry_DoWithDefault(t *testing.T) {
-	m := map[error]uint64{}
 	e := errors.New("test")
-	m[e] = 1
-
 	count := 0
 	testFunc := func() (any, error) {
 		if count > 0 {
@@ -169,7 +166,7 @@ func TestRetry_TryOnConflictRetryIf(t *testing.T) {
 	result := r.TryOnConflictVal(testFunc)
 	assert.NotNil(t, result)
 
-	assert.Equal(t, result.TryError(), ErrorRetryIf)
+	assert.True(t, errors.Is(result.TryError(), ErrorRetryIf))
 	assert.Equal(t, result.Count(), int64(1))
 }
 
