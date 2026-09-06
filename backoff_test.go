@@ -94,9 +94,11 @@ func TestExponentialBackoff(t *testing.T) {
 			expected: defaultDelay,
 		},
 		{
+			// 期望值独立推导：钳制后应为 2^36 * 100ms，不使用被测代码同款 Exp2 表达式计算
+			// Expected value derived independently: clamped result must be 2^36 * 100ms, not computed with the same Exp2 expression as the code under test
 			name:     "max exponential",
 			input:    maxExponent + 1,
-			expected: time.Duration(int64(math.Exp2(float64(maxExponent)))) * baseInterval,
+			expected: (1 << 36) * baseInterval,
 		},
 	}
 
@@ -105,6 +107,22 @@ func TestExponentialBackoff(t *testing.T) {
 			result := ExponentialBackoff(tt.input)
 			assert.Equal(t, tt.expected, result)
 		})
+	}
+}
+
+// TestExponentialBackoffOverflowClamp 验证大指数输入被钳制为不溢出的正值：
+// 2^36 * 100ms = 6871947673600000000ns < math.MaxInt64，而 2^37 * 100ms 会回绕为负值。
+// TestExponentialBackoffOverflowClamp verifies large power inputs are clamped to a non-overflowing positive value:
+// 2^36 * 100ms = 6871947673600000000ns < math.MaxInt64, while 2^37 * 100ms wraps around to a negative value.
+func TestExponentialBackoffOverflowClamp(t *testing.T) {
+	// 独立推导的钳制上界：2^36 个 100ms 基础时间单位
+	// Independently derived clamp bound: 2^36 units of the 100ms base interval
+	const clamped = (1 << 36) * baseInterval
+
+	for _, power := range []int64{37, 62, 100} {
+		result := ExponentialBackoff(power)
+		assert.Positive(t, int64(result), "ExponentialBackoff(%d) 必须为正值，不得溢出回绕", power)
+		assert.Equal(t, time.Duration(clamped), result, "ExponentialBackoff(%d) 必须钳制为 2^36 * 100ms", power)
 	}
 }
 

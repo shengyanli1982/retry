@@ -32,8 +32,9 @@ func (r *Result) TryError() error {
 	return r.tryError
 }
 
-// ExecErrors 方法返回所有执行错误的列表
-// The ExecErrors method returns a list of all execution errors
+// ExecErrors 方法返回所有执行错误的列表（仅 Config.detail 为 true 时记录，否则为空切片）
+// The ExecErrors method returns a list of all execution errors (recorded only when Config.detail
+// is true; otherwise an empty slice)
 func (r *Result) ExecErrors() []error {
 	return r.execErrors
 }
@@ -44,8 +45,9 @@ func (r *Result) IsSuccess() bool {
 	return r.tryError == nil
 }
 
-// LastExecError 方法返回最后一次执行的错误
-// The LastExecError method returns the error of the last execution
+// LastExecError 方法返回最后一次执行的错误；错误列表为空（含 detail=false 未记录）时返回 ErrorExecErrNotFound
+// The LastExecError method returns the error of the last execution; it returns ErrorExecErrNotFound
+// when the error list is empty (including when detail=false recorded nothing)
 func (r *Result) LastExecError() error {
 	if len(r.execErrors) > 0 {
 		return r.execErrors[len(r.execErrors)-1]
@@ -53,8 +55,9 @@ func (r *Result) LastExecError() error {
 	return ErrorExecErrNotFound
 }
 
-// FirstExecError 方法返回第一次执行的错误
-// The FirstExecError method returns the error of the first execution
+// FirstExecError 方法返回第一次执行的错误；错误列表为空（含 detail=false 未记录）时返回 ErrorExecErrNotFound
+// The FirstExecError method returns the error of the first execution; it returns ErrorExecErrNotFound
+// when the error list is empty (including when detail=false recorded nothing)
 func (r *Result) FirstExecError() error {
 	if len(r.execErrors) > 0 {
 		return r.execErrors[0]
@@ -62,8 +65,9 @@ func (r *Result) FirstExecError() error {
 	return ErrorExecErrNotFound
 }
 
-// ExecErrorByIndex 方法返回指定索引处的执行错误
-// The ExecErrorByIndex method returns the execution error at the specified index
+// ExecErrorByIndex 方法返回指定索引处的执行错误；索引越界时返回 ErrorExecErrByIndexOutOfBound
+// The ExecErrorByIndex method returns the execution error at the specified index; it returns
+// ErrorExecErrByIndexOutOfBound when the index is out of range
 func (r *Result) ExecErrorByIndex(idx int) error {
 	if idx >= 0 && idx < len(r.execErrors) {
 		return r.execErrors[idx]
@@ -88,14 +92,26 @@ type Retry struct {
 }
 
 // New 函数用于创建一个新的 Retry 实例。它接受一个 Config 结构体作为参数，该结构体包含了重试的配置信息。
+// New 对传入的 Config 做浅拷贝，归一化只作用于副本，永不写调用方对象（避免副作用外泄与并发写竞争）。
 // The New function is used to create a new Retry instance. It accepts a Config structure as a parameter, which contains the configuration information for retrying.
+// New shallow-copies the passed Config; normalization applies only to the copy and never writes the caller's object (avoiding side-effect leakage and concurrent-write races).
 func New(conf *Config) *Retry {
-	conf = isConfigValid(conf)
-	return &Retry{config: conf}
+	if conf != nil {
+		c := *conf
+		conf = &c
+	}
+	// conf==nil 时 isConfigValid 返回全新的默认 Config，语义保持不变
+	// When conf==nil, isConfigValid returns a brand-new default Config; the semantics are unchanged
+	return &Retry{config: isConfigValid(conf)}
 }
 
-// TryOnConflict 方法尝试执行 fn 函数，如果遇到冲突则进行重试
-// The TryOnConflict method attempts to execute the fn function, and retries if a conflict is encountered
+// TryOnConflict 方法尝试执行 fn 函数，如果遇到冲突则进行重试。
+// "OnConflict" 的含义：fn 返回的任何非 nil 错误都视为一次冲突，触发按配置的重试。
+// fn 为 nil 时返回 nil；因错误中止时 TryError 以双 %w 同时包装哨兵错误与根因（见 error.go）。
+// The TryOnConflict method attempts to execute the fn function, and retries if a conflict is encountered.
+// Meaning of "OnConflict": any non-nil error returned by fn is treated as a conflict that triggers a
+// configured retry. It returns nil when fn is nil; on an error-triggered abort, TryError wraps both the sentinel error
+// and the root cause with double %w (see error.go).
 func (r *Retry) TryOnConflict(fn RetryableFunc) *Result {
 	// 如果 fn 函数为空，则返回 nil。这是因为没有函数可以执行，所以没有必要进行重试。
 	// If the fn function is null, return nil. This is because there is no function to execute, so there is no need to retry.
@@ -195,10 +211,6 @@ func (r *Retry) TryOnConflict(fn RetryableFunc) *Result {
 			// Calculate the backoff time: backoff function receives the current retry count as parameter, plus the linear delay component
 			backoff := r.config.backoffFunc(int64(result.count)) + delay
 
-			// 调用配置中的回调函数，传入重试次数、退避时间和错误
-			// Call the callback function in the configuration, passing in the number of retries, backoff time, and error
-			r.config.callback.OnRetry(int64(result.count), backoff, err)
-
 			// 首先，我们检查特定错误的重试次数是否已经超过限制
 			// First, we check if the retry count for a specific error has exceeded the limit
 			// 如果错误次数超过限制，则返回结果
@@ -207,9 +219,9 @@ func (r *Retry) TryOnConflict(fn RetryableFunc) *Result {
 				// 如果特定错误的重试次数已经用完，则返回一个错误，表示按错误类型的重试次数已经超过
 				// If the retry count for a specific error has been used up, return an error indicating that the retry count by error type has been exceeded
 				if errAttempts <= 0 {
-					// 将错误设置到结果中，这个错误表示特定错误的重试次数已经超过了限制
-					// Set the error to the result, this error indicates that the retry count for a specific error has exceeded the limit
-					result.tryError = ErrorRetryAttemptsByErrorExceeded
+					// 将 ErrorRetryAttemptsByErrorExceeded 与原始错误一起包装到结果中，保留根因（与 retryIf 路径的双 %w 语义一致）
+					// Wrap ErrorRetryAttemptsByErrorExceeded together with the original error into the result, preserving the root cause (consistent with the double-%w semantics of the retryIf path)
+					result.tryError = fmt.Errorf("%w: %w", ErrorRetryAttemptsByErrorExceeded, err)
 
 					// 返回结果，这个结果包含了执行的次数、最后一次的错误和尝试的错误
 					// Return the result, this result includes the number of executions, the last error, and the attempted error
@@ -227,14 +239,21 @@ func (r *Retry) TryOnConflict(fn RetryableFunc) *Result {
 			// 如果执行次数超过限制，则返回结果
 			// If the number of executions exceeds the limit, return the result
 			if result.count >= r.config.attempts {
-				// 将错误设置到结果中，这个错误表示总的执行次数已经超过了限制
-				// Set the error to the result, this error indicates that the total number of executions has exceeded the limit
-				result.tryError = ErrorRetryAttemptsExceeded
+				// 将 ErrorRetryAttemptsExceeded 与原始错误一起包装到结果中，保留根因（与 retryIf 路径的双 %w 语义一致）
+				// Wrap ErrorRetryAttemptsExceeded together with the original error into the result, preserving the root cause (consistent with the double-%w semantics of the retryIf path)
+				result.tryError = fmt.Errorf("%w: %w", ErrorRetryAttemptsExceeded, err)
 
 				// 返回结果，这个结果包含了执行的次数、最后一次的错误和尝试的错误
 				// Return the result, this result includes the number of executions, the last error, and the attempted error
 				return result
 			}
+
+			// 通过全部中止检查后、实际发起下一次重试前，才调用回调函数：只为确实会发生的重试回调，
+			// 保证 OnRetry 契约（interface.go：仅在确定发起下一次重试前调用，delay 为即将发生的重试的延迟）不多计
+			// Only after passing all abort checks and before actually starting the next retry, call the callback:
+			// it fires only for retries that will actually happen, honoring the OnRetry contract
+			// (interface.go: called only right before the next retry is initiated, delay is the delay of the upcoming retry) without over-counting
+			r.config.callback.OnRetry(int64(result.count), backoff, err)
 
 			// 重置定时器
 			// Reset the timer
@@ -243,24 +262,41 @@ func (r *Retry) TryOnConflict(fn RetryableFunc) *Result {
 	}
 }
 
-// TryOnConflict 方法尝试执行 RetryableFunc 函数，如果发生冲突，则进行重试
-// The TryOnConflict method tries to execute the RetryableFunc function, and retries if a conflict occurs
+// TryOnConflictVal 方法与 TryOnConflict 相同，但返回 RetryResult 接口。
+// The TryOnConflictVal method is identical to TryOnConflict but returns the RetryResult interface.
 func (r *Retry) TryOnConflictVal(fn RetryableFunc) RetryResult {
-	return r.TryOnConflict(fn)
+	// fn==nil 时内部返回 nil *Result，不得装箱进接口（typed-nil 会使调用方 == nil 判空失效）
+	// When fn==nil the inner call returns a nil *Result, which must not be boxed into the interface (a typed-nil breaks the caller's == nil check)
+	if res := r.TryOnConflict(fn); res != nil {
+		return res
+	}
+	return nil
 }
 
-// Do 函数尝试执行 fn 函数，如果遇到冲突则根据 conf 配置进行重试
-// The Do function attempts to execute the fn function, and retries according to the conf configuration if a conflict is encountered
+// Do 函数使用指定配置执行 fn 函数，如果遇到冲突则按配置进行重试；conf 为 nil 时使用默认配置。
+// fn 为 nil 时返回真 nil 接口（而非装箱的 typed-nil）。
+// The Do function executes the fn function with the given config, and retries according to the conf
+// configuration if a conflict is encountered; a nil conf means the default configuration.
+// It returns a true nil interface (not a boxed typed-nil) when fn is nil.
 func Do(fn RetryableFunc, conf *Config) RetryResult {
-	// 创建一个新的 Retry 实例并尝试执行 fn 函数
-	// Create a new Retry instance and try to execute the fn function
-	return New(conf).TryOnConflict(fn)
+	// 创建一个新的 Retry 实例并尝试执行 fn 函数；nil *Result 不装箱进接口
+	// Create a new Retry instance and try to execute the fn function; a nil *Result is not boxed into the interface
+	if res := New(conf).TryOnConflict(fn); res != nil {
+		return res
+	}
+	return nil
 }
 
-// DoWithDefault 函数尝试执行 fn 函数，如果遇到冲突则使用默认配置进行重试
-// The DoWithDefault function attempts to execute the fn function, and retries with the default configuration if a conflict is encountered
+// DoWithDefault 函数使用默认配置执行 fn 函数，如果遇到冲突则进行重试；"Default" 指 NewConfig 的全套默认值（等价于 Do(fn, nil)）。
+// fn 为 nil 时返回真 nil 接口（而非装箱的 typed-nil）。
+// The DoWithDefault function executes the fn function with the default configuration, and retries if a
+// conflict is encountered; "Default" refers to the full set of NewConfig defaults (equivalent to Do(fn, nil)).
+// It returns a true nil interface (not a boxed typed-nil) when fn is nil.
 func DoWithDefault(fn RetryableFunc) RetryResult {
-	// 创建一个新的 Retry 实例并尝试执行 fn 函数
-	// Create a new Retry instance and try to execute the fn function
-	return New(nil).TryOnConflict(fn)
+	// 创建一个新的 Retry 实例并尝试执行 fn 函数；nil *Result 不装箱进接口
+	// Create a new Retry instance and try to execute the fn function; a nil *Result is not boxed into the interface
+	if res := New(nil).TryOnConflict(fn); res != nil {
+		return res
+	}
+	return nil
 }

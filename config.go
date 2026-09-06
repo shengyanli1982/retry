@@ -10,8 +10,8 @@ import (
 // Define the default number of retries, delay time, jitter, and factor
 const (
 	defaultAttempts = 3                                        // 默认的重试次数为3次
-	defaultDelayNum = 5                                        // 默认的延迟时间为5毫秒
-	defaultDelay    = defaultDelayNum * time.Millisecond * 100 // 计算默认的延迟时间
+	defaultDelayNum = 5                                        // 默认的延迟基数为5（对应5个100毫秒基础时间单位）
+	defaultDelay    = defaultDelayNum * time.Millisecond * 100 // 默认的延迟时间：5 * 1ms * 100 = 500毫秒
 	defaultJitter   = 3.0                                      // 默认的抖动为3.0
 	defaultFactor   = 1.0                                      // 默认的因子为1.0
 )
@@ -23,11 +23,11 @@ var (
 	// defaultRetryIfFunc is the default retry condition function, which retries for all errors
 	defaultRetryIfFunc = func(error) bool { return true }
 
-	// defaultBackoffFunc 是默认的退避函数，使用指数退避和随机退避的组合
-	// defaultBackoffFunc is the default backoff function, which combines exponential backoff and random backoff
-	defaultBackoffFunc = func(n int64) time.Duration {
-		return CombineBackoffs(ExponentialBackoff, RandomBackoff)(n)
-	}
+	// defaultBackoffFunc 是默认的退避函数，使用指数退避和随机退避的组合。
+	// 包级一次性构造：闭包无状态（随机数仅在 randMu 保护下读取全局 randGen），并发安全，避免每次调用重建组合闭包。
+	// defaultBackoffFunc is the default backoff function, which combines exponential backoff and random backoff.
+	// Constructed once at package level: the closure is stateless (random reads only touch the global randGen under randMu) and concurrency-safe, avoiding rebuilding the combined closure on every call.
+	defaultBackoffFunc = CombineBackoffs(ExponentialBackoff, RandomBackoff)
 )
 
 // 定义一个空的回调结构体
@@ -94,17 +94,26 @@ func (c *Config) WithCallback(cb Callback) *Config {
 	return c
 }
 
-// WithAttempts 方法设置 Config 的重试次数并返回 Config 实例
-// The WithAttempts method sets the number of retries of the Config and returns the Config instance
+// WithAttempts 方法设置 Config 的重试次数并返回 Config 实例。
+// 取值在 New 时归一化：0 → 默认 3；>= 65535 → 钳制为 65534（见 isConfigValid）。
+// The WithAttempts method sets the number of retries of the Config and returns the Config instance.
+// The value is normalized by New: 0 falls back to the default 3; values >= 65535 are clamped to 65534 (see isConfigValid).
 func (c *Config) WithAttempts(attempts uint64) *Config {
 	c.attempts = attempts
 	return c
 }
 
-// WithAttemptsByError 方法设置 Config 的错误重试次数并返回 Config 实例
-// The WithAttemptsByError method sets the number of error retries of the Config and returns the Config instance
+// WithAttemptsByError 方法设置 Config 的错误重试次数并返回 Config 实例。
+// 入口拷贝用户 map，库持有私有副本：用户后续对原 map 的写入不影响重试预算，
+// 也避免重试执行期间与用户并发写相遇导致 fatal error: concurrent map read and map write。
+// The WithAttemptsByError method sets the number of error retries of the Config and returns the Config instance.
+// It copies the user map at the entry so the library holds a private copy: later writes to the original map do not affect the retry budget,
+// and a concurrent map read/write fatal error between retry execution and user writes is avoided.
 func (c *Config) WithAttemptsByError(attemptsByError map[error]uint64) *Config {
-	c.attemptsByError = attemptsByError
+	c.attemptsByError = make(map[error]uint64, len(attemptsByError))
+	for k, v := range attemptsByError {
+		c.attemptsByError[k] = v
+	}
 	return c
 }
 
@@ -115,8 +124,9 @@ func (c *Config) WithFactor(factor float64) *Config {
 	return c
 }
 
-// WithInitDelay 方法设置 Config 的初始延迟时间并返回 Config 实例
-// The WithInitDelay method sets the initial delay time of the Config and returns the Config instance
+// WithInitDelay 方法设置 Config 的基础延迟（每次重试线性延迟项的乘数基数，见 retry.go 的退避计算）并返回 Config 实例
+// The WithInitDelay method sets the base delay of the Config (the multiplier base of the linear delay
+// component for each retry, see the backoff calculation in retry.go) and returns the Config instance
 func (c *Config) WithInitDelay(delay time.Duration) *Config {
 	c.delay = delay
 	return c
@@ -170,10 +180,14 @@ func isConfigValid(conf *Config) *Config {
 			conf.callback = NewEmptyCallback()
 		}
 
-		// 如果 conf.attempts 不在有效范围内，则设置为默认的重试次数
-		// If conf.attempts is not within the valid range, set it to the default number of retries
-		if conf.attempts <= 0 || conf.attempts >= math.MaxUint16 {
+		// 如果 conf.attempts 为 0，则重置为默认的重试次数；如果达到或超过 math.MaxUint16（65535），则钳制为 math.MaxUint16-1（65534）。
+		// 上限钳制而非重置的原因：65534 是可表示的最大合法重试预算，把巨大值静默重置为默认 3 会造成"要求更多却得到更少"的反直觉语义。
+		// If conf.attempts is 0, reset it to the default number of retries; if it reaches or exceeds math.MaxUint16 (65535), clamp it to math.MaxUint16-1 (65534).
+		// Clamping instead of resetting: 65534 is the largest representable valid retry budget, while silently resetting huge values to the default 3 creates the counter-intuitive "ask for more, get less" semantics.
+		if conf.attempts <= 0 {
 			conf.attempts = defaultAttempts
+		} else if conf.attempts >= math.MaxUint16 {
+			conf.attempts = math.MaxUint16 - 1
 		}
 
 		// 如果 conf.attemptsByError 为 nil，则初始化为一个空的映射
@@ -224,8 +238,10 @@ func DefaultConfig() *Config {
 	return NewConfig()
 }
 
-// FixConfig 函数返回一个新的固定退避时间的 Config 实例
-// The FixConfig function returns a new Config instance with a fixed backoff time
+// FixConfig 函数返回一个新的固定退避时间的 Config 实例：每次重试固定间隔 500ms
+// （backoffFunc 恒返回 defaultDelay，factor=0、jitter=0 使线性延迟项为 0）
+// The FixConfig function returns a new Config instance with a fixed backoff time: every retry waits a
+// constant 500ms (the backoffFunc always returns defaultDelay, and factor=0, jitter=0 zero out the linear delay component)
 func FixConfig() *Config {
 	return NewConfig().WithBackOffFunc(func(_ int64) time.Duration {
 		return defaultDelay
