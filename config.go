@@ -2,6 +2,7 @@ package retry
 
 import (
 	"context"
+	"maps"
 	"math"
 	"time"
 )
@@ -24,9 +25,9 @@ var (
 	defaultRetryIfFunc = func(error) bool { return true }
 
 	// defaultBackoffFunc 是默认的退避函数，使用指数退避和随机退避的组合。
-	// 包级一次性构造：闭包无状态（随机数仅在 randMu 保护下读取全局 randGen），并发安全，避免每次调用重建组合闭包。
+	// 包级一次性构造：闭包无状态（随机数由 math/rand/v2 顶层函数提供，goroutine 安全且无锁），并发安全，避免每次调用重建组合闭包。
 	// defaultBackoffFunc is the default backoff function, which combines exponential backoff and random backoff.
-	// Constructed once at package level: the closure is stateless (random reads only touch the global randGen under randMu) and concurrency-safe, avoiding rebuilding the combined closure on every call.
+	// Constructed once at package level: the closure is stateless (randomness comes from math/rand/v2 top-level functions, which are goroutine-safe and lock-free) and concurrency-safe, avoiding rebuilding the combined closure on every call.
 	defaultBackoffFunc = CombineBackoffs(ExponentialBackoff, RandomBackoff)
 )
 
@@ -110,10 +111,12 @@ func (c *Config) WithAttempts(attempts uint64) *Config {
 // It copies the user map at the entry so the library holds a private copy: later writes to the original map do not affect the retry budget,
 // and a concurrent map read/write fatal error between retry execution and user writes is avoided.
 func (c *Config) WithAttemptsByError(attemptsByError map[error]uint64) *Config {
-	c.attemptsByError = make(map[error]uint64, len(attemptsByError))
-	for k, v := range attemptsByError {
-		c.attemptsByError[k] = v
-	}
+	// maps.Clone 拷贝用户 map；maps.Clone(nil) 返回 nil（原手写循环产生空 map），
+	// nil 语义安全：New→isConfigValid 会把 nil 归一化为空 map，且 TryOnConflict 对本地副本仅有 ok 守卫下的读写
+	// maps.Clone copies the user map; maps.Clone(nil) returns nil (the previous hand-written loop produced an empty map).
+	// The nil semantics are safe: New→isConfigValid normalizes nil to an empty map, and TryOnConflict only
+	// reads/writes its local copy under an ok-guard
+	c.attemptsByError = maps.Clone(attemptsByError)
 	return c
 }
 

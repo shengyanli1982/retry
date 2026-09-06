@@ -171,10 +171,10 @@ func TestConcurrentBackoffs(t *testing.T) {
 	var wg sync.WaitGroup
 	wg.Add(goroutines)
 
-	for i := 0; i < goroutines; i++ {
+	for range goroutines {
 		go func() {
 			defer wg.Done()
-			for j := 0; j < iterations; j++ {
+			for range iterations {
 				// Test all backoff functions concurrently
 				_ = RandomBackoff(5)
 				_ = ExponentialBackoff(3)
@@ -188,19 +188,19 @@ func TestConcurrentBackoffs(t *testing.T) {
 }
 
 func BenchmarkFixedBackoff(b *testing.B) {
-	for i := 0; i < b.N; i++ {
+	for range b.N {
 		_ = FixedBackoff(3)
 	}
 }
 
 func BenchmarkRandomBackoff(b *testing.B) {
-	for i := 0; i < b.N; i++ {
+	for range b.N {
 		_ = RandomBackoff(3)
 	}
 }
 
 func BenchmarkExponentialBackoff(b *testing.B) {
-	for i := 0; i < b.N; i++ {
+	for range b.N {
 		_ = ExponentialBackoff(3)
 	}
 }
@@ -208,7 +208,7 @@ func BenchmarkExponentialBackoff(b *testing.B) {
 func BenchmarkCombinedBackoffs(b *testing.B) {
 	combined := CombineBackoffs(FixedBackoff, ExponentialBackoff)
 	b.ResetTimer()
-	for i := 0; i < b.N; i++ {
+	for range b.N {
 		_ = combined(3)
 	}
 }

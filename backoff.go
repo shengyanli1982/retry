@@ -1,9 +1,7 @@
 package retry
 
 import (
-	"math"
-	"math/rand"
-	"sync"
+	"math/rand/v2"
 	"time"
 )
 
@@ -14,18 +12,11 @@ const (
 
 	// 防止 time.Duration 溢出的最大指数值：
 	// 2^36 * 100ms = 6871947673600000000ns < math.MaxInt64；2^37 * 100ms 乘法回绕为负值。
-	// 62 只能保证 Exp2 结果本身可转 int64，不能保证乘 baseInterval 后不溢出。
+	// 62 只能保证移位结果 1<<62 本身不溢出 int64，不能保证乘 baseInterval 后不溢出。
 	// Maximum exponent to prevent time.Duration overflow:
 	// 2^36 * 100ms = 6871947673600000000ns < math.MaxInt64; 2^37 * 100ms wraps around to a negative value.
-	// 62 would only guarantee the Exp2 result fits in int64, not the multiplication by baseInterval.
+	// 62 would only guarantee the shifted value 1<<62 itself fits in int64, not the multiplication by baseInterval.
 	maxExponent = 36
-)
-
-var (
-	// 使用独立的随机数生成器，避免全局锁竞争
-	// Use a separate random number generator to avoid global lock contention
-	randGen = rand.New(rand.NewSource(time.Now().UnixNano()))
-	randMu  sync.Mutex
 )
 
 // BackoffFunc 定义了退避策略函数的类型：入参为当前已完成的执行次数 count（从 1 开始），返回本次重试前的退避时长
@@ -51,9 +42,10 @@ func RandomBackoff(maxInterval int64) time.Duration {
 		return defaultDelay
 	}
 
-	randMu.Lock()
-	interval := randGen.Int63n(maxInterval)
-	randMu.Unlock()
+	// rand/v2 顶层函数 goroutine 安全且 per-M 无锁；maxInterval <= 0 已被前置守卫拦截，Int64N 不会收到非正参数
+	// rand/v2 top-level functions are goroutine-safe and per-M lock-free; maxInterval <= 0 is already
+	// rejected by the guard above, so Int64N never receives a non-positive argument
+	interval := rand.Int64N(maxInterval)
 
 	return time.Duration(interval) * baseInterval
 }
@@ -74,7 +66,12 @@ func ExponentialBackoff(power int64) time.Duration {
 		power = maxExponent
 	}
 
-	return time.Duration(int64(math.Exp2(float64(power)))) * baseInterval
+	// 整数移位精确计算 2^power，免于 float 往返；power 已钳制在 [1, maxExponent]，
+	// 移位与乘 baseInterval 均不溢出，数值与原 Exp2 实现逐一相同
+	// The integer shift computes 2^power exactly without a float round-trip; power is already
+	// clamped to [1, maxExponent], so neither the shift nor the multiplication by baseInterval
+	// overflows, and the values are identical to the previous Exp2 implementation one by one
+	return time.Duration(int64(1)<<power) * baseInterval
 }
 
 // CombineBackoffs 将多个退避策略组合成一个：对同一入参 count 逐项求和。

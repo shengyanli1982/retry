@@ -341,7 +341,7 @@ func TestRetry_ConcurrentStress(t *testing.T) {
 	concurrent := 10
 	wg.Add(concurrent)
 
-	for i := 0; i < concurrent; i++ {
+	for i := range concurrent {
 		go func(id int) {
 			defer wg.Done()
 			result := r.TryOnConflictVal(func() (any, error) {
@@ -439,7 +439,7 @@ func TestConcurrentNewOnSharedConfig(t *testing.T) {
 
 	var wg sync.WaitGroup
 	wg.Add(8)
-	for i := 0; i < 8; i++ {
+	for range 8 {
 		go func() {
 			defer wg.Done()
 			result := Do(func() (any, error) { return "ok", nil }, shared)

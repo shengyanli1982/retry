@@ -2,6 +2,8 @@ package retry
 
 import (
 	"fmt"
+	"maps"
+	"math/rand/v2"
 	"time"
 )
 
@@ -121,10 +123,7 @@ func (r *Retry) TryOnConflict(fn RetryableFunc) *Result {
 
 	// 创建 attemptsByError 的本地副本，避免并发访问共享 map 导致 data race
 	// Create a local copy of attemptsByError to avoid data race when accessing the shared map concurrently
-	localAttemptsByError := make(map[error]uint64, len(r.config.attemptsByError))
-	for k, v := range r.config.attemptsByError {
-		localAttemptsByError[k] = v
-	}
+	localAttemptsByError := maps.Clone(r.config.attemptsByError)
 
 	// 创建一个新的定时器，使用短初始延迟让第一次执行几乎立即进行。定时器用于控制重试的间隔。
 	// Create a new timer with a short initial delay so the first execution happens almost immediately. The timer is used to control the interval between retries.
@@ -202,9 +201,9 @@ func (r *Retry) TryOnConflict(fn RetryableFunc) *Result {
 			}
 			// 计算下一次重试的线性延迟部分：随机抖动 + 重试次数 * 因子，再乘以基础延迟时间
 			// Calculate the linear delay component for the next retry: random jitter + retry count * factor, then multiply by base delay
-			randMu.Lock()
-			jitterVal := randGen.Float64()
-			randMu.Unlock()
+			// rand/v2 顶层 Float64 goroutine 安全且 per-M 无锁，值域 [0,1) 与原实现一致
+			// rand/v2 top-level Float64 is goroutine-safe and per-M lock-free; its [0,1) range matches the previous implementation
+			jitterVal := rand.Float64()
 			delay := time.Duration(jitterVal*r.config.jitter+float64(result.count)*r.config.factor) * r.config.delay
 
 			// 计算退避时间：退避函数接收当前重试次数作为参数，加上线性延迟部分
