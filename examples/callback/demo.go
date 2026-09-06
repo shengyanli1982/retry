@@ -16,8 +16,8 @@ var err = errors.New("test") // error
 // Define a callback structure
 type callback struct{}
 
-// OnRetry 方法在每次重试时被调用，接收重试次数、延迟时间和错误作为参数
-// The OnRetry method is called each time a retry is performed, receiving the number of retries, delay time, and error as parameters
+// OnRetry 方法在每次实际发起重试前被调用，接收已完成的执行次数、即将发生的重试的延迟时间和刚失败执行的错误作为参数
+// The OnRetry method is called before each retry is actually initiated, receiving the number of completed executions, the delay of the upcoming retry, and the error from the execution that just failed as parameters
 func (cb *callback) OnRetry(count int64, delay time.Duration, err error) {
 	fmt.Println("OnRetry", count, delay.String(), err)
 }

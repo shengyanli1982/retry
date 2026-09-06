@@ -49,20 +49,22 @@ go get github.com/shengyanli1982/retry
 -   `ctx`：上下文对象 `context.Context`。默认值为 `context.Background()`。
 -   `callback`：回调函数。默认值为 `&emptyCallback{}`。
 -   `attempts`：重试次数。默认值为 `3`。
--   `attemptsByErrors`：特定错误的重试次数。默认值为 `map[error]uint64{}`。
--   `delay`：重试之间的延迟时间。默认值为 `200ms`。
+-   `attemptsByError`：特定错误的重试次数。默认值为 `map[error]uint64{}`。
+-   `delay`：基础延迟，是每次重试线性延迟项的乘数基数（见下方退避公式）。默认值为 `500ms`。
 -   `factor`：重试次数的因子。默认值为 `1.0`。
--   `retryIf`：确定是否重试的函数。默认值为 `defaultRetryIfFunc`。
--   `backoff`：退避函数。默认值为 `defaultBackoffFunc`。
+-   `jitter`：抖动因子，为线性延迟项添加随机性。默认值为 `3.0`。
+-   `retryIfFunc`：确定是否重试的函数。默认值为 `defaultRetryIfFunc`。
+-   `backoffFunc`：退避函数。默认值为 `defaultBackoffFunc`。
 -   `detail`：是否记录详细错误信息。默认值为 `false`。
 
 您可以使用以下方法来设置配置值：
 
 -   `WithContext`：设置上下文对象 `context.Context`。
 -   `WithCallback`：设置回调函数。
--   `WithAttempts`：设置重试次数。
+-   `WithAttempts`：设置重试次数。取值在传入 `New` 时归一化：`0` 回退为默认值 `3`，`>= 65535` 的值被钳制为 `65534`。
 -   `WithAttemptsByError`：设置特定错误的重试次数。
--   `WithDelay`：设置第一次重试的延迟时间。
+-   `WithInitDelay`：设置基础延迟（每次重试线性延迟项的乘数基数）。
+-   `WithJitter`：设置抖动因子。
 -   `WithFactor`：设置重试次数的因子。
 -   `WithRetryIfFunc`：设置确定是否重试的函数。
 -   `WithBackOffFunc`：设置退避函数。
@@ -73,27 +75,30 @@ go get github.com/shengyanli1982/retry
 >
 > 您可以使用 `WithBackOffFunc` 方法来设置退避算法。
 >
-> **eg**: backoff = backoffFunc(factor \* count + jitter \* rand.Float64()) \* 100 \* Millisecond + delay
+> **eg**: backoff = backoffFunc(count) + trunc(jitter \* rand.Float64() + factor \* count) \* delay
+>
+> 其中 `count` 为已完成的执行次数（从 1 开始），`rand.Float64()` 返回 `[0, 1)` 内的随机值，`trunc` 为 float64 到 `time.Duration` 的转换（向零截断）——因此线性项被量化为 `delay` 的整数倍。退避函数仅接收 `count` 作为入参；内置退避函数以 100ms 基础时间单位为倍数计算结果（见 [API 参考](#api-参考)）。
 
 ### 方法
 
--   `Do`: 通过指定配置对象和函数来重试函数调用。它返回一个 `Result` 对象。
--   `DoWithDefault`: 使用默认配置值来重试函数调用。它返回一个 `Result` 对象。
+-   `Do`: 通过指定配置对象和函数来重试函数调用。它返回一个 `RetryResult` 接口值（由 `*Result` 实现）。
+-   `DoWithDefault`: 使用默认配置值来重试函数调用。它返回一个 `RetryResult` 接口值（由 `*Result` 实现）。
 
 > [!TIP]
-> 在 `Result` 对象内包含函数调用的结果、最后一次重试的错误、所有重试的错误以及重试是否成功。如果函数调用失败，将返回默认值。
+> 返回的 `RetryResult` 值内包含函数调用的结果、最后一次重试的错误、所有重试的错误以及重试是否成功。如果函数调用失败，将返回默认值。
 
 ### 执行结果
 
-在重试之后，`Retry` 返回一个 `Result` 对象。`Result` 对象提供以下方法：
+在重试之后，`Retry` 返回一个 `RetryResult` 接口值（由 `*Result` 实现）。`RetryResult` 接口提供以下方法：
 
 -   `Data`: 获取成功调用函数的结果。类型为 `interface{}`。
 -   `TryError`: 获取重试操作的错误。如果重试成功，则值为 `nil`。
--   `ExecErrors`: 获取所有重试的错误。
+-   `ExecErrors`: 获取所有重试的错误。仅当 `detail` 为 `true` 时才记录错误，否则列表保持为空。
 -   `IsSuccess`: 检查重试操作是否成功。
--   `LastExecError`: 获取最后一次重试的错误。
--   `FirstExecError`: 获取第一次重试的错误。
--   `ExecErrorByIndex`: 通过索引获取特定重试的错误。
+-   `LastExecError`: 获取最后一次重试的错误。未记录任何错误时返回哨兵错误 `ErrorExecErrNotFound`。
+-   `FirstExecError`: 获取第一次重试的错误。未记录任何错误时返回哨兵错误 `ErrorExecErrNotFound`。
+-   `ExecErrorByIndex`: 通过索引获取特定重试的错误。索引越界时返回哨兵错误 `ErrorExecErrByIndexOutOfBound`。
+-   `Count`: 获取已执行的次数。类型为 `int64`。
 
 ### 示例
 
@@ -247,7 +252,7 @@ execErrors: []
 isSuccess: true
 ========= testFunc2 =========
 result: <nil>
-tryError: retry attempts exceeded
+tryError: retry attempts exceeded: testFunc2
 execErrors: []
 isSuccess: false
 ```
@@ -267,14 +272,18 @@ isSuccess: false
 
 回调函数具有以下方法：
 
--   `OnRetry`：在重试时调用。`count` 参数表示当前重试次数，`delay` 参数表示下一次重试的延迟时间，`err` 参数表示上一次重试的错误信息。
+-   `OnRetry`：仅在确定发起下一次重试前调用（全部中止检查——按错误预算、总次数、retryIf——通过之后）；最后一次尝试失败导致中止时不会调用，因此 `attempts = 3` 且全部执行失败时恰好调用两次。`count` 参数表示已完成的执行次数，`delay` 参数表示即将发生的重试的退避延迟，`err` 参数表示刚失败执行的错误信息。
 
     ```go
     // Callback 接口用于定义重试回调函数
     // The Callback interface is used to define the retry callback function.
     type Callback interface {
-    	// OnRetry 方法在每次重试时调用，传入当前的重试次数、延迟时间和错误信息
-    	// The OnRetry method is called on each retry, passing in the current retry count, delay time, and error information
+    	// OnRetry 方法仅在确定发起下一次重试前调用（全部中止检查通过后）；最后一次尝试失败导致中止时不会调用。
+    	// 参数：count 为已完成的执行次数，delay 为即将发生的重试的退避延迟，err 为刚失败执行的错误。
+    	// The OnRetry method is called only right before the next retry is actually initiated (after all
+    	// abort checks pass); it is not called when the final attempt fails and the retry aborts.
+    	// Parameters: count is the number of completed executions, delay is the backoff delay of the
+    	// upcoming retry, and err is the error from the execution that just failed.
     	OnRetry(count int64, delay time.Duration, err error)
     }
     ```
@@ -300,8 +309,8 @@ var err = errors.New("test") // error
 // Define a callback structure
 type callback struct{}
 
-// OnRetry 方法在每次重试时被调用，接收重试次数、延迟时间和错误作为参数
-// The OnRetry method is called each time a retry is performed, receiving the number of retries, delay time, and error as parameters
+// OnRetry 方法在每次实际发起重试前被调用，接收已完成的执行次数、即将发生的重试的延迟时间和刚失败执行的错误作为参数
+// The OnRetry method is called before each retry is actually initiated, receiving the number of completed executions, the delay of the upcoming retry, and the error from the execution that just failed as parameters
 func (cb *callback) OnRetry(count int64, delay time.Duration, err error) {
 	fmt.Println("OnRetry", count, delay.String(), err)
 }
@@ -341,13 +350,64 @@ func main() {
 
 **Result**
 
+> [!NOTE]
+> 下方为某一次实际运行的示例输出。`delay` 值包含随机抖动，每次运行结果不同。默认配置（`attempts = 3`）下，`OnRetry` 恰好被调用两次——每次实际发生的重试前各一次。
+
 ```bash
 $ go run demo.go
-OnRetry 1 1s test
-OnRetry 2 1.5s test
-OnRetry 3 2.4s test
+OnRetry 1 1.2s test
+OnRetry 2 1.9s test
 result: <nil>
-tryError: retry attempts exceeded
+tryError: retry attempts exceeded: test
 execErrors: []
 isSuccess: false
 ```
+
+# API 参考
+
+## 退避函数
+
+`BackoffFunc` 类型定义了退避策略函数。其 `int64` 入参为当前已完成的执行次数（`count`，从 1 开始），返回下一次重试前的退避时长 `time.Duration`。内置退避函数以 100ms 基础时间单位为倍数计算结果：
+
+-   `FixedBackoff(interval int64) time.Duration`：返回 `interval * 100ms`。若 `interval <= 0`，返回默认延迟 `500ms`。
+-   `RandomBackoff(maxInterval int64) time.Duration`：返回 `[0, maxInterval) * 100ms` 内的随机时长。若 `maxInterval <= 0`，返回默认延迟 `500ms`。
+-   `ExponentialBackoff(power int64) time.Duration`：返回 `2^power * 100ms`。`power` 被钳制为最大 `36`，因为更大的幂在乘以 100ms 后会溢出 `int64`。若 `power <= 0`，返回默认延迟 `500ms`。
+-   `CombineBackoffs(backoffs ...BackoffFunc) BackoffFunc`：将多个退避策略组合为一个，对同一 `count` 逐项求和。未传入任何策略时返回 `FixedBackoff`；求和结果 `<= 0` 时返回默认延迟 `500ms`。
+
+默认退避函数为 `CombineBackoffs(ExponentialBackoff, RandomBackoff)`。
+
+## 哨兵错误
+
+所有哨兵中止路径都以双 `%w` 将哨兵错误与根因一起包装（`fmt.Errorf("%w: %w", sentinel, err)`），因此 `errors.Is(tryError, sentinel)` 与 `errors.Is(tryError, rootCause)` 均能命中。
+
+| 哨兵错误 | 使用场景 |
+| -------- | -------- |
+| `ErrorRetryIf` | `retryIfFunc` 判定不重试时，与原始错误一起包装进 `TryError`。 |
+| `ErrorRetryAttemptsExceeded` | 总 `attempts` 预算耗尽时，与最后一次错误一起包装进 `TryError`。 |
+| `ErrorRetryAttemptsByErrorExceeded` | `attemptsByError` 的按错误预算耗尽时，与最后一次错误一起包装进 `TryError`。 |
+| `ErrorExecErrNotFound` | 调用 `LastExecError`/`FirstExecError` 但未记录任何错误时返回（包括 `detail = false` 的情况）。 |
+| `ErrorExecErrByIndexOutOfBound` | 以越界索引调用 `ExecErrorByIndex` 时返回。 |
+
+```go
+result := retry.DoWithDefault(testFunc)
+if errors.Is(result.TryError(), retry.ErrorRetryAttemptsExceeded) {
+	// 总重试次数耗尽；根因错误同样可以通过 errors.Is 命中
+}
+```
+
+## 函数与类型
+
+-   `Do(fn RetryableFunc, conf *Config) RetryResult`：使用给定配置执行 `fn` 并在出错时重试；配置为 `nil` 时使用默认配置。`fn` 为 `nil` 时返回真正的 `nil` 接口（而非 typed nil）。
+-   `DoWithDefault(fn RetryableFunc) RetryResult`：使用默认配置执行 `fn`，等价于 `Do(fn, nil)`。`fn` 为 `nil` 时返回真正的 `nil` 接口。
+-   `New(conf *Config) *Retry`：创建 `Retry` 实例。配置会被浅拷贝，归一化永不写入调用方的对象；`nil` 表示使用默认配置。
+-   `(*Retry).TryOnConflict(fn RetryableFunc) *Result`：执行 `fn`，任何返回的错误都视为触发重试的冲突。`fn` 为 `nil` 时返回 `nil`。
+-   `(*Retry).TryOnConflictVal(fn RetryableFunc) RetryResult`：与 `TryOnConflict` 相同，但返回 `RetryResult` 接口。`fn` 为 `nil` 时返回真正的 `nil` 接口。
+-   `NewResult() *Result`：创建一个空的 `Result`，其错误列表已初始化。
+-   `NewEmptyCallback() Callback`：返回 `OnRetry` 不做任何操作的回调（默认回调）。
+-   `DefaultConfig() *Config`：返回一个使用默认值的新配置（与 `NewConfig` 相同）。
+-   `FixConfig() *Config`：返回一个以固定 `500ms` 间隔重试的新配置（`factor = 0`、`jitter = 0`，退避函数恒返回固定值）。
+-   `(*Config).WithInitDelay(delay time.Duration) *Config`：设置基础延迟（线性延迟项的乘数基数）。
+-   `(*Config).WithJitter(jitter float64) *Config`：设置抖动因子。
+-   `RetryableFunc = func() (any, error)`：可重试函数的类型。
+-   `RetryIfFunc = func(error) bool`：重试条件函数的类型。
+-   `RetryResult`：`Do`/`DoWithDefault`/`TryOnConflictVal` 返回的接口，由 `*Result` 实现。

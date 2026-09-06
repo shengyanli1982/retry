@@ -49,20 +49,22 @@ Using `Retry` is simple. Just one line of code is needed to retry a function cal
 -   `ctx`: The context.Context object. The default value is `context.Background()`.
 -   `callback`: The callback function. The default value is `&emptyCallback{}`.
 -   `attempts`: The number of retry attempts. The default value is `3`.
--   `attemptsByErrors`: The number of retry attempts for specific errors. The default value is `map[error]uint64{}`.
--   `delay`: The delay time between retries. The default value is `200ms`.
+-   `attemptsByError`: The number of retry attempts for specific errors. The default value is `map[error]uint64{}`.
+-   `delay`: The base delay used as the multiplier of the linear delay component for each retry (see the backoff formula below). The default value is `500ms`.
 -   `factor`: The retry times factor. The default value is `1.0`.
--   `retryIf`: The function to determine whether to retry. The default value is `defaultRetryIfFunc`.
--   `backoff`: The backoff function. The default value is `defaultBackoffFunc`.
+-   `jitter`: The jitter factor that adds randomness to the linear delay component. The default value is `3.0`.
+-   `retryIfFunc`: The function to determine whether to retry. The default value is `defaultRetryIfFunc`.
+-   `backoffFunc`: The backoff function. The default value is `defaultBackoffFunc`.
 -   `detail`: Whether to record detailed errors. The default value is `false`.
 
 You can use the following methods to set config values:
 
 -   `WithContext`: Set the context.Context object.
 -   `WithCallback`: Set the callback function.
--   `WithAttempts`: Set the number of retry attempts.
+-   `WithAttempts`: Set the number of retry attempts. The value is normalized when passed to `New`: `0` falls back to the default `3`, and values `>= 65535` are clamped to `65534`.
 -   `WithAttemptsByError`: Set the number of retry attempts for specific errors.
--   `WithDelay`: Set the delay time for the first retry.
+-   `WithInitDelay`: Set the base delay (the multiplier base of the linear delay component for each retry).
+-   `WithJitter`: Set the jitter factor.
 -   `WithFactor`: Set the retry times factor.
 -   `WithRetryIfFunc`: Set the function to determine whether to retry.
 -   `WithBackOffFunc`: Set the backoff function.
@@ -73,27 +75,30 @@ You can use the following methods to set config values:
 >
 > You can use the `WithBackOffFunc` method to set the backoff algorithm.
 >
-> **eg**: backoff = backoffFunc(factor \* count + jitter \* rand.Float64()) \* 100 \* Millisecond + delay
+> **eg**: backoff = backoffFunc(count) + trunc(jitter \* rand.Float64() + factor \* count) \* delay
+>
+> Where `count` is the number of completed executions (starting from 1), `rand.Float64()` returns a value in `[0, 1)`, and `trunc` is the float64-to-`time.Duration` conversion, which truncates toward zero — so the linear component is quantized to an integer multiple of `delay`. The backoff function receives `count` as its only parameter; the built-in backoff functions compute their results in units of a 100ms base interval (see [API Reference](#api-reference)).
 
 ### Methods
 
--   `Do`: Retry a function call by specifying a config object and a function. It returns a `Result` object.
--   `DoWithDefault`: Retry a function call with default config values. It returns a `Result` object.
+-   `Do`: Retry a function call by specifying a config object and a function. It returns a `RetryResult` interface value (implemented by `*Result`).
+-   `DoWithDefault`: Retry a function call with default config values. It returns a `RetryResult` interface value (implemented by `*Result`).
 
 > [!TIP]
-> The `Result` object contains the result of the function call, the error of the last retry, the errors of all retries, and whether the retry was successful. If the function call fails, the default value will be returned.
+> The returned `RetryResult` value contains the result of the function call, the error of the last retry, the errors of all retries, and whether the retry was successful. If the function call fails, the default value will be returned.
 
 ### Exec Result
 
-After retrying, `Retry` returns a `Result` object. The `Result` object provides the following methods:
+After retrying, `Retry` returns a `RetryResult` interface value (implemented by `*Result`). The `RetryResult` interface provides the following methods:
 
 -   `Data`: Get the result of the successfully called function. The type is `interface{}`.
 -   `TryError`: Get the error of the retry action. If the retry is successful, the value is `nil`.
--   `ExecErrors`: Get the errors of all retries.
+-   `ExecErrors`: Get the errors of all retries. Errors are recorded only when `detail` is `true`; otherwise the list stays empty.
 -   `IsSuccess`: Check if the retry action was successful.
--   `LastExecError`: Get the last error of the retries.
--   `FirstExecError`: Get the first error of the retries.
--   `ExecErrorByIndex`: Get the error of a specific retry by index.
+-   `LastExecError`: Get the last error of the retries. Returns the `ErrorExecErrNotFound` sentinel when no errors were recorded.
+-   `FirstExecError`: Get the first error of the retries. Returns the `ErrorExecErrNotFound` sentinel when no errors were recorded.
+-   `ExecErrorByIndex`: Get the error of a specific retry by index. Returns the `ErrorExecErrByIndexOutOfBound` sentinel when the index is out of range.
+-   `Count`: Get the number of executions performed. The type is `int64`.
 
 ### Example
 
@@ -247,7 +252,7 @@ execErrors: []
 isSuccess: true
 ========= testFunc2 =========
 result: <nil>
-tryError: retry attempts exceeded
+tryError: retry attempts exceeded: testFunc2
 execErrors: []
 isSuccess: false
 ```
@@ -267,14 +272,18 @@ isSuccess: false
 
 The callback function has the following methods:
 
--   `OnRetry`: called when retrying. The `count` parameter represents the current retry count, the `delay` parameter represents the delay time for the next retry, and the `err` parameter represents the error from the last retry.
+-   `OnRetry`: called only right before a retry is actually initiated, after all abort checks (per-error budget, total attempts, retryIf) have passed — it is not called when the final attempt fails and the retry aborts, so with `attempts = 3` and every execution failing it is called exactly twice. The `count` parameter represents the number of completed executions, the `delay` parameter represents the backoff delay of the upcoming retry, and the `err` parameter represents the error from the execution that just failed.
 
     ```go
     // Callback 接口用于定义重试回调函数
     // The Callback interface is used to define the retry callback function.
     type Callback interface {
-    	// OnRetry 方法在每次重试时调用，传入当前的重试次数、延迟时间和错误信息
-    	// The OnRetry method is called on each retry, passing in the current retry count, delay time, and error information
+    	// OnRetry 方法仅在确定发起下一次重试前调用（全部中止检查通过后）；最后一次尝试失败导致中止时不会调用。
+    	// 参数：count 为已完成的执行次数，delay 为即将发生的重试的退避延迟，err 为刚失败执行的错误。
+    	// The OnRetry method is called only right before the next retry is actually initiated (after all
+    	// abort checks pass); it is not called when the final attempt fails and the retry aborts.
+    	// Parameters: count is the number of completed executions, delay is the backoff delay of the
+    	// upcoming retry, and err is the error from the execution that just failed.
     	OnRetry(count int64, delay time.Duration, err error)
     }
     ```
@@ -300,8 +309,8 @@ var err = errors.New("test") // error
 // Define a callback structure
 type callback struct{}
 
-// OnRetry 方法在每次重试时被调用，接收重试次数、延迟时间和错误作为参数
-// The OnRetry method is called each time a retry is performed, receiving the number of retries, delay time, and error as parameters
+// OnRetry 方法在每次实际发起重试前被调用，接收已完成的执行次数、即将发生的重试的延迟时间和刚失败执行的错误作为参数
+// The OnRetry method is called before each retry is actually initiated, receiving the number of completed executions, the delay of the upcoming retry, and the error from the execution that just failed as parameters
 func (cb *callback) OnRetry(count int64, delay time.Duration, err error) {
 	fmt.Println("OnRetry", count, delay.String(), err)
 }
@@ -341,13 +350,64 @@ func main() {
 
 **Result**
 
+> [!NOTE]
+> Sample output from one actual run. The `delay` values contain random jitter and differ between runs. With the default config (`attempts = 3`), `OnRetry` is called exactly twice — once before each of the two actual retries.
+
 ```bash
 $ go run demo.go
-OnRetry 1 1s test
-OnRetry 2 1.5s test
-OnRetry 3 2.4s test
+OnRetry 1 1.2s test
+OnRetry 2 1.9s test
 result: <nil>
-tryError: retry attempts exceeded
+tryError: retry attempts exceeded: test
 execErrors: []
 isSuccess: false
 ```
+
+# API Reference
+
+## Backoff Functions
+
+The `BackoffFunc` type defines a backoff strategy function. Its `int64` parameter is the current number of completed executions (`count`, starting from 1), and it returns the backoff `time.Duration` before the next retry. The built-in backoff functions compute their results in units of a 100ms base interval:
+
+-   `FixedBackoff(interval int64) time.Duration`: Returns `interval * 100ms`. If `interval <= 0`, returns the default delay `500ms`.
+-   `RandomBackoff(maxInterval int64) time.Duration`: Returns a random duration in `[0, maxInterval) * 100ms`. If `maxInterval <= 0`, returns the default delay `500ms`.
+-   `ExponentialBackoff(power int64) time.Duration`: Returns `2^power * 100ms`. `power` is clamped to a maximum of `36`, because larger powers would overflow `int64` after multiplying by 100ms. If `power <= 0`, returns the default delay `500ms`.
+-   `CombineBackoffs(backoffs ...BackoffFunc) BackoffFunc`: Combines multiple backoff strategies into one by summing their results for the same `count`. If no strategy is given, returns `FixedBackoff`. If the sum is `<= 0`, returns the default delay `500ms`.
+
+The default backoff function is `CombineBackoffs(ExponentialBackoff, RandomBackoff)`.
+
+## Sentinel Errors
+
+Every sentinel abort path wraps the sentinel error together with the root cause using double `%w` (`fmt.Errorf("%w: %w", sentinel, err)`), so both `errors.Is(tryError, sentinel)` and `errors.Is(tryError, rootCause)` match.
+
+| Sentinel | Used when |
+| -------- | --------- |
+| `ErrorRetryIf` | `retryIfFunc` decides not to retry; wrapped with the original error in `TryError`. |
+| `ErrorRetryAttemptsExceeded` | The total `attempts` budget is exhausted; wrapped with the last error in `TryError`. |
+| `ErrorRetryAttemptsByErrorExceeded` | The per-error budget from `attemptsByError` is exhausted; wrapped with the last error in `TryError`. |
+| `ErrorExecErrNotFound` | `LastExecError`/`FirstExecError` is called but no errors were recorded (including `detail = false`). |
+| `ErrorExecErrByIndexOutOfBound` | `ExecErrorByIndex` is called with an out-of-range index. |
+
+```go
+result := retry.DoWithDefault(testFunc)
+if errors.Is(result.TryError(), retry.ErrorRetryAttemptsExceeded) {
+	// total attempts exhausted; the root cause is also reachable via errors.Is
+}
+```
+
+## Functions and Types
+
+-   `Do(fn RetryableFunc, conf *Config) RetryResult`: Executes `fn` with the given config and retries on error; a `nil` config means defaults. Returns a true `nil` interface (not a typed nil) when `fn` is `nil`.
+-   `DoWithDefault(fn RetryableFunc) RetryResult`: Executes `fn` with the default config, equivalent to `Do(fn, nil)`. Returns a true `nil` interface when `fn` is `nil`.
+-   `New(conf *Config) *Retry`: Creates a `Retry` instance. The config is shallow-copied, and normalization never writes the caller's object; `nil` means defaults.
+-   `(*Retry).TryOnConflict(fn RetryableFunc) *Result`: Runs `fn` and treats any returned error as a conflict that triggers a retry. Returns `nil` when `fn` is `nil`.
+-   `(*Retry).TryOnConflictVal(fn RetryableFunc) RetryResult`: Same as `TryOnConflict` but returns the `RetryResult` interface. Returns a true `nil` interface when `fn` is `nil`.
+-   `NewResult() *Result`: Creates an empty `Result` with an initialized error list.
+-   `NewEmptyCallback() Callback`: Returns a callback whose `OnRetry` does nothing (the default callback).
+-   `DefaultConfig() *Config`: Returns a new config with default values (same as `NewConfig`).
+-   `FixConfig() *Config`: Returns a new config that retries at a fixed `500ms` interval (`factor = 0`, `jitter = 0`, and a constant backoff function).
+-   `(*Config).WithInitDelay(delay time.Duration) *Config`: Sets the base delay (the multiplier base of the linear delay component).
+-   `(*Config).WithJitter(jitter float64) *Config`: Sets the jitter factor.
+-   `RetryableFunc = func() (any, error)`: The type of a retryable function.
+-   `RetryIfFunc = func(error) bool`: The type of the retry-condition function.
+-   `RetryResult`: The interface returned by `Do`/`DoWithDefault`/`TryOnConflictVal`, implemented by `*Result`.
