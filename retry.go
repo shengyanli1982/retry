@@ -1,7 +1,6 @@
 package retry
 
 import (
-	"fmt"
 	"maps"
 	"math/rand/v2"
 	"time"
@@ -121,27 +120,102 @@ func (r *Retry) TryOnConflict(fn RetryableFunc) *Result {
 		return nil
 	}
 
-	// 创建 attemptsByError 的本地副本，避免并发访问共享 map 导致 data race
-	// Create a local copy of attemptsByError to avoid data race when accessing the shared map concurrently
-	localAttemptsByError := maps.Clone(r.config.attemptsByError)
-
-	// 创建一个新的定时器，使用短初始延迟让第一次执行几乎立即进行。定时器用于控制重试的间隔。
-	// Create a new timer with a short initial delay so the first execution happens almost immediately. The timer is used to control the interval between retries.
-	tr := time.NewTimer(0)
-
-	// 使用 defer 关键字确保定时器在函数结束时停止，避免资源泄露。
-	// Use the defer keyword to ensure that the timer stops when the function ends, to avoid resource leaks.
-	defer tr.Stop()
+	// 创建 attemptsByError 的本地副本，避免并发访问共享 map 导致 data race。
+	// 空 map 与 nil map 在 ok 守卫（if errAttempts, ok := localAttemptsByError[err]; ok）下行为完全一致
+	// （nil map 读返回零值 + ok=false），因此空 map 时跳过 Clone 以消除一次堆分配。
+	// Create a local copy of attemptsByError to avoid data race when accessing the shared map concurrently.
+	// An empty map and a nil map behave identically under the ok guard
+	// (nil map read returns zero value + ok=false), so skip Clone for empty maps to eliminate a heap allocation.
+	var localAttemptsByError map[error]uint64
+	if len(r.config.attemptsByError) > 0 {
+		localAttemptsByError = maps.Clone(r.config.attemptsByError)
+	}
 
 	// 创建一个新的 Result 实例来存储执行结果。Result 结构体包含了执行的结果和错误信息。
 	// Create a new Result instance to store the execution result. The Result structure contains the execution result and error information.
 	result := NewResult()
 
-	// 循环尝试执行 fn 函数，直到满足退出条件
-	// Loop to try to execute the fn function until the exit condition is met
+	// ── 首次执行：直接执行，不创建 timer，消除成功路径上的 timer 分配开销 ──
+	// ── First execution: execute directly without creating a timer, eliminating timer allocation overhead on the success path ──
+
+	// 非阻塞检查 context 是否已取消
+	// Non-blocking check if context is already cancelled
+	select {
+	case <-r.config.ctx.Done():
+		result.tryError = r.config.ctx.Err()
+		return result
+	default:
+	}
+
+	// 调用 fn 函数，获取返回的数据和错误
+	// Call the fn function to get the returned data and error
+	data, err := fn()
+
+	// 增加执行次数
+	// Increase the execution count
+	result.count++
+
+	// 如果没有错误，则返回结果
+	// If there is no error, return the result
+	if err == nil {
+		result.data = data
+		result.tryError = err
+		return result
+	}
+
+	// 如果需要详细信息，则添加执行错误
+	// If details are needed, add execution errors
+	if r.config.detail {
+		result.execErrors = append(result.execErrors, err)
+	}
+
+	// 如果不需要重试，则返回结果
+	// If no retry is needed, return the result
+	if !r.config.retryIfFunc(err) {
+		result.tryError = &wrappedError{sentinel: ErrorRetryIf, cause: err}
+		return result
+	}
+
+	// 检查特定错误的重试次数是否已经超过限制
+	// Check if the retry count for a specific error has exceeded the limit
+	if errAttempts, ok := localAttemptsByError[err]; ok {
+		if errAttempts <= 0 {
+			result.tryError = &wrappedError{sentinel: ErrorRetryAttemptsByErrorExceeded, cause: err}
+			return result
+		}
+		errAttempts--
+		localAttemptsByError[err] = errAttempts
+	}
+
+	// 检查总的执行次数是否已经超过限制
+	// Check if the total number of executions has exceeded the limit
+		if result.count >= r.config.attempts {
+			result.tryError = &wrappedError{sentinel: ErrorRetryAttemptsExceeded, cause: err}
+		return result
+	}
+
+	// 计算下一次重试的延迟并创建 timer（仅首次失败后才创建）
+	// Calculate the delay for the next retry and create the timer (only created after first failure)
+	// rand/v2 顶层 Float64 goroutine 安全且 per-M 无锁，值域 [0,1) 与原实现一致
+	// rand/v2 top-level Float64 is goroutine-safe and per-M lock-free; its [0,1) range matches the previous implementation
+	jitterVal := rand.Float64()
+	delay := time.Duration(jitterVal*r.config.jitter+float64(result.count)*r.config.factor) * r.config.delay
+	backoff := r.config.backoffFunc(int64(result.count)) + delay
+
+	// 通过全部中止检查后、实际发起下一次重试前，才调用回调函数
+	// Only after passing all abort checks and before actually starting the next retry, call the callback
+	r.config.callback.OnRetry(int64(result.count), backoff, err)
+
+	// 创建定时器，用于控制后续重试的间隔
+	// Create a timer to control the interval between subsequent retries
+	tr := time.NewTimer(backoff)
+	defer tr.Stop()
+
+	// ── 后续重试循环 ──
+	// ── Subsequent retry loop ──
 	for {
-		// 非阻塞检查 context 是否已取消，避免 timer(0) 与已取消 context 同时就绪时 select 随机选择通道
-		// Non-blocking check if context is already cancelled, to avoid random channel selection when timer(0) and cancelled context are both ready
+		// 非阻塞检查 context 是否已取消
+		// Non-blocking check if context is already cancelled
 		select {
 		case <-r.config.ctx.Done():
 			result.tryError = r.config.ctx.Err()
@@ -170,39 +244,26 @@ func (r *Retry) TryOnConflict(fn RetryableFunc) *Result {
 			// 如果没有错误，则返回结果
 			// If there is no error, return the result
 			if err == nil {
-				// 将数据和错误（此时为 nil）设置到结果中
-				// Set the data and error (which is nil at this time) to the result
 				result.data = data
 				result.tryError = err
-
-				// 返回结果
-				// Return the result
 				return result
 			}
 
 			// 如果需要详细信息，则添加执行错误
 			// If details are needed, add execution errors
 			if r.config.detail {
-				// 将错误添加到结果的执行错误列表中
-				// Add the error to the execution error list of the result
 				result.execErrors = append(result.execErrors, err)
 			}
 
 			// 如果不需要重试，则返回结果
 			// If no retry is needed, return the result
 			if !r.config.retryIfFunc(err) {
-				// 将 ErrorRetryIf 与原始错误一起包装到结果中，保留原始错误信息
-				// Wrap ErrorRetryIf together with the original error into the result, preserving the original error information
-				result.tryError = fmt.Errorf("%w: %w", ErrorRetryIf, err)
-
-				// 返回结果
-				// Return the result
+				result.tryError = &wrappedError{sentinel: ErrorRetryIf, cause: err}
 				return result
 			}
+
 			// 计算下一次重试的线性延迟部分：随机抖动 + 重试次数 * 因子，再乘以基础延迟时间
 			// Calculate the linear delay component for the next retry: random jitter + retry count * factor, then multiply by base delay
-			// rand/v2 顶层 Float64 goroutine 安全且 per-M 无锁，值域 [0,1) 与原实现一致
-			// rand/v2 top-level Float64 is goroutine-safe and per-M lock-free; its [0,1) range matches the previous implementation
 			jitterVal := rand.Float64()
 			delay := time.Duration(jitterVal*r.config.jitter+float64(result.count)*r.config.factor) * r.config.delay
 
@@ -210,48 +271,26 @@ func (r *Retry) TryOnConflict(fn RetryableFunc) *Result {
 			// Calculate the backoff time: backoff function receives the current retry count as parameter, plus the linear delay component
 			backoff := r.config.backoffFunc(int64(result.count)) + delay
 
-			// 首先，我们检查特定错误的重试次数是否已经超过限制
-			// First, we check if the retry count for a specific error has exceeded the limit
-			// 如果错误次数超过限制，则返回结果
-			// If the number of errors exceeds the limit, return the result
+			// 检查特定错误的重试次数是否已经超过限制
+			// Check if the retry count for a specific error has exceeded the limit
 			if errAttempts, ok := localAttemptsByError[err]; ok {
-				// 如果特定错误的重试次数已经用完，则返回一个错误，表示按错误类型的重试次数已经超过
-				// If the retry count for a specific error has been used up, return an error indicating that the retry count by error type has been exceeded
 				if errAttempts <= 0 {
-					// 将 ErrorRetryAttemptsByErrorExceeded 与原始错误一起包装到结果中，保留根因（与 retryIf 路径的双 %w 语义一致）
-					// Wrap ErrorRetryAttemptsByErrorExceeded together with the original error into the result, preserving the root cause (consistent with the double-%w semantics of the retryIf path)
-					result.tryError = fmt.Errorf("%w: %w", ErrorRetryAttemptsByErrorExceeded, err)
-
-					// 返回结果，这个结果包含了执行的次数、最后一次的错误和尝试的错误
-					// Return the result, this result includes the number of executions, the last error, and the attempted error
+					result.tryError = &wrappedError{sentinel: ErrorRetryAttemptsByErrorExceeded, cause: err}
 					return result
 				}
-
-				// 如果还有剩余的重试次数，则减少一次重试次数，并更新到配置中
-				// If there are remaining retry counts, decrease the retry count by one and update it in the configuration
 				errAttempts--
 				localAttemptsByError[err] = errAttempts
 			}
 
-			// 然后，我们检查总的执行次数是否已经超过限制
-			// Then, we check if the total number of executions has exceeded the limit
-			// 如果执行次数超过限制，则返回结果
-			// If the number of executions exceeds the limit, return the result
+			// 检查总的执行次数是否已经超过限制
+			// Check if the total number of executions has exceeded the limit
 			if result.count >= r.config.attempts {
-				// 将 ErrorRetryAttemptsExceeded 与原始错误一起包装到结果中，保留根因（与 retryIf 路径的双 %w 语义一致）
-				// Wrap ErrorRetryAttemptsExceeded together with the original error into the result, preserving the root cause (consistent with the double-%w semantics of the retryIf path)
-				result.tryError = fmt.Errorf("%w: %w", ErrorRetryAttemptsExceeded, err)
-
-				// 返回结果，这个结果包含了执行的次数、最后一次的错误和尝试的错误
-				// Return the result, this result includes the number of executions, the last error, and the attempted error
+				result.tryError = &wrappedError{sentinel: ErrorRetryAttemptsExceeded, cause: err}
 				return result
 			}
 
-			// 通过全部中止检查后、实际发起下一次重试前，才调用回调函数：只为确实会发生的重试回调，
-			// 保证 OnRetry 契约（interface.go：仅在确定发起下一次重试前调用，delay 为即将发生的重试的延迟）不多计
-			// Only after passing all abort checks and before actually starting the next retry, call the callback:
-			// it fires only for retries that will actually happen, honoring the OnRetry contract
-			// (interface.go: called only right before the next retry is initiated, delay is the delay of the upcoming retry) without over-counting
+			// 通过全部中止检查后、实际发起下一次重试前，才调用回调函数
+			// Only after passing all abort checks and before actually starting the next retry, call the callback
 			r.config.callback.OnRetry(int64(result.count), backoff, err)
 
 			// 重置定时器

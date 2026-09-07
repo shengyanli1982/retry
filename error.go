@@ -37,3 +37,24 @@ var (
 	// detail=false recorded no errors).
 	ErrorExecErrNotFound = errors.New("exec error not found")
 )
+
+// wrappedError 是 fmt.Errorf("%w: %w", sentinel, cause) 的零分配替代品。
+// 实现 Go 1.20+ 的 Unwrap() []error 接口，使 errors.Is 同时匹配 sentinel 和 cause。
+// wrappedError is a zero-allocation replacement for fmt.Errorf("%w: %w", sentinel, cause).
+// It implements the Go 1.20+ Unwrap() []error interface, allowing errors.Is to match both sentinel and cause.
+type wrappedError struct {
+	sentinel error
+	cause    error
+}
+
+// Error 返回错误消息，格式为 "sentinel: cause"
+// Error returns the error message in the format "sentinel: cause"
+func (e wrappedError) Error() string {
+	return e.sentinel.Error() + ": " + e.cause.Error()
+}
+
+// Unwrap 返回包装的两个错误，供 errors.Is/errors.As 遍历
+// Unwrap returns the two wrapped errors for errors.Is/errors.As traversal
+func (e wrappedError) Unwrap() []error {
+	return []error{e.sentinel, e.cause}
+}

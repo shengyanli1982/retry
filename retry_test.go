@@ -569,3 +569,97 @@ func TestAttemptsClamping(t *testing.T) {
 		})
 	}
 }
+
+func BenchmarkNew(b *testing.B) {
+	cfg := NewConfig()
+	b.ResetTimer()
+	for range b.N {
+		_ = New(cfg)
+	}
+}
+
+func BenchmarkNew_NilConfig(b *testing.B) {
+	b.ResetTimer()
+	for range b.N {
+		_ = New(nil)
+	}
+}
+
+func BenchmarkTryOnConflict_Success(b *testing.B) {
+	cfg := NewConfig().WithInitDelay(0).WithJitter(0).WithFactor(0)
+	r := New(cfg)
+	fn := func() (any, error) { return 42, nil }
+	b.ResetTimer()
+	for range b.N {
+		_ = r.TryOnConflict(fn)
+	}
+}
+
+func BenchmarkTryOnConflict_Retry3(b *testing.B) {
+	cfg := NewConfig().WithAttempts(5).WithInitDelay(time.Nanosecond).WithJitter(0).WithFactor(0).
+		WithBackOffFunc(func(_ int64) time.Duration { return 0 })
+	r := New(cfg)
+	b.ResetTimer()
+	for range b.N {
+		count := 0
+		_ = r.TryOnConflict(func() (any, error) {
+			count++
+			if count >= 3 {
+				return "ok", nil
+			}
+			return nil, errors.New("retry")
+		})
+	}
+}
+
+func BenchmarkTryOnConflict_AllFail(b *testing.B) {
+	cfg := NewConfig().WithAttempts(3).WithInitDelay(time.Nanosecond).WithJitter(0).WithFactor(0).
+		WithBackOffFunc(func(_ int64) time.Duration { return 0 })
+	r := New(cfg)
+	fn := func() (any, error) { return nil, errors.New("fail") }
+	b.ResetTimer()
+	for range b.N {
+		_ = r.TryOnConflict(fn)
+	}
+}
+
+func BenchmarkTryOnConflict_WithDetail(b *testing.B) {
+	cfg := NewConfig().WithAttempts(3).WithInitDelay(time.Nanosecond).WithJitter(0).WithFactor(0).
+		WithBackOffFunc(func(_ int64) time.Duration { return 0 }).WithDetail(true)
+	r := New(cfg)
+	fn := func() (any, error) { return nil, errors.New("fail") }
+	b.ResetTimer()
+	for range b.N {
+		_ = r.TryOnConflict(fn)
+	}
+}
+
+func BenchmarkDo(b *testing.B) {
+	cfg := NewConfig().WithInitDelay(0).WithJitter(0).WithFactor(0)
+	fn := func() (any, error) { return 42, nil }
+	b.ResetTimer()
+	for range b.N {
+		_ = Do(fn, cfg)
+	}
+}
+
+func BenchmarkDoWithDefault(b *testing.B) {
+	fn := func() (any, error) { return 42, nil }
+	b.ResetTimer()
+	for range b.N {
+		_ = DoWithDefault(fn)
+	}
+}
+
+func BenchmarkTryOnConflict_WithAttemptsByError(b *testing.B) {
+	e := errors.New("specific")
+	cfg := NewConfig().WithAttempts(10).WithAttemptsByError(map[error]uint64{e: 3}).
+		WithInitDelay(time.Nanosecond).WithJitter(0).WithFactor(0).
+		WithBackOffFunc(func(_ int64) time.Duration { return 0 })
+	r := New(cfg)
+	fn := func() (any, error) { return nil, e }
+	b.ResetTimer()
+	for range b.N {
+		_ = r.TryOnConflict(fn)
+	}
+}
