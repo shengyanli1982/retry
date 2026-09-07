@@ -68,16 +68,15 @@ type Config struct {
 // The NewConfig function returns a new Config instance with the default configuration
 func NewConfig() *Config {
 	return &Config{
-		ctx:             context.Background(),
-		callback:        NewEmptyCallback(),
-		attempts:        defaultAttempts,
-		attemptsByError: make(map[error]uint64),
-		factor:          defaultFactor,
-		delay:           defaultDelay,
-		jitter:          defaultJitter,
-		retryIfFunc:     defaultRetryIfFunc,
-		backoffFunc:     defaultBackoffFunc,
-		detail:          false,
+		ctx:         context.Background(),
+		callback:    NewEmptyCallback(),
+		attempts:    defaultAttempts,
+		factor:      defaultFactor,
+		delay:       defaultDelay,
+		jitter:      defaultJitter,
+		retryIfFunc: defaultRetryIfFunc,
+		backoffFunc: defaultBackoffFunc,
+		detail:      false,
 	}
 }
 
@@ -111,11 +110,11 @@ func (c *Config) WithAttempts(attempts uint64) *Config {
 // It copies the user map at the entry so the library holds a private copy: later writes to the original map do not affect the retry budget,
 // and a concurrent map read/write fatal error between retry execution and user writes is avoided.
 func (c *Config) WithAttemptsByError(attemptsByError map[error]uint64) *Config {
-	// maps.Clone 拷贝用户 map；maps.Clone(nil) 返回 nil（原手写循环产生空 map），
-	// nil 语义安全：New→isConfigValid 会把 nil 归一化为空 map，且 TryOnConflict 对本地副本仅有 ok 守卫下的读写
-	// maps.Clone copies the user map; maps.Clone(nil) returns nil (the previous hand-written loop produced an empty map).
-	// The nil semantics are safe: New→isConfigValid normalizes nil to an empty map, and TryOnConflict only
-	// reads/writes its local copy under an ok-guard
+	// maps.Clone 拷贝用户 map；maps.Clone(nil) 返回 nil。
+	// nil 语义安全：TryOnConflict 以 len > 0 守卫决定是否 Clone 本地副本，且对副本仅有 ok 守卫下的读写（nil map 读返回零值 + ok=false）
+	// maps.Clone copies the user map; maps.Clone(nil) returns nil.
+	// The nil semantics are safe: TryOnConflict decides whether to clone its local copy under a len > 0 guard,
+	// and only reads/writes the copy under an ok-guard (a nil map read returns the zero value + ok=false)
 	c.attemptsByError = maps.Clone(attemptsByError)
 	return c
 }
@@ -191,12 +190,6 @@ func isConfigValid(conf *Config) *Config {
 			conf.attempts = defaultAttempts
 		} else if conf.attempts >= math.MaxUint16 {
 			conf.attempts = math.MaxUint16 - 1
-		}
-
-		// 如果 conf.attemptsByError 为 nil，则初始化为一个空的映射
-		// If conf.attemptsByError is nil, initialize it to an empty map
-		if conf.attemptsByError == nil {
-			conf.attemptsByError = make(map[error]uint64)
 		}
 
 		// 如果 conf.factor 小于 0，则设置为默认的退避因子
