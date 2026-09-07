@@ -367,9 +367,6 @@ func TestRetry_ConfigEdgeCases(t *testing.T) {
 	// Q7 定案行为：巨大 attempts（>=65535）被钳制为 65534 而非重置为 3，
 	// 穷尽 65534 次（指数退避单次即达百年级）在测试时间轴内不可达，
 	// 故用短超时 context 约束执行：首次失败后退避（>=700ms）远超超时（100ms），ctx 先终止重试。
-	// Settled Q7 behavior: huge attempts (>=65535) are clamped to 65534 instead of reset to 3;
-	// exhausting 65534 tries (a single exponential backoff step already spans centuries) is unreachable in test time,
-	// so a short-timeout context bounds the run: after the first failure the backoff (>=700ms) far exceeds the timeout (100ms) and ctx ends the retry first.
 	timeoutCtx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
 	defer cancel()
 
@@ -404,9 +401,6 @@ func TestRetry_ConfigEdgeCases(t *testing.T) {
 // TestNilFuncInterfaceExitsReturnUntypedNil 验证 fn==nil 时三个接口出口返回 untyped nil，
 // 使惯用的 res == nil 判空生效（不得把 nil *Result 装箱进 RetryResult 接口）。
 // 注意：必须用 == nil 直接比较；testify 的 assert.Nil 走反射判空，对 typed-nil 同样为真，无鉴别力。
-// TestNilFuncInterfaceExitsReturnUntypedNil verifies the three interface exits return untyped nil when fn==nil,
-// so the idiomatic res == nil check works (a nil *Result must not be boxed into the RetryResult interface).
-// Note: must use == nil directly; testify's assert.Nil uses reflection and also reports typed-nil as nil.
 func TestNilFuncInterfaceExitsReturnUntypedNil(t *testing.T) {
 	assert.True(t, Do(nil, nil) == nil, "Do(nil, nil) 必须返回 untyped nil")
 	assert.True(t, DoWithDefault(nil) == nil, "DoWithDefault(nil) 必须返回 untyped nil")
@@ -415,8 +409,6 @@ func TestNilFuncInterfaceExitsReturnUntypedNil(t *testing.T) {
 
 // TestNewDoesNotMutateCallerConfig 验证 New 对传入 Config 做副本归一化，永不写调用方对象：
 // 含无效字段的 cfg 经 New 后各字段必须保持原值（副作用不外泄）。
-// TestNewDoesNotMutateCallerConfig verifies New normalizes a copy of the passed Config and never writes the caller's object:
-// a cfg with invalid fields must keep all field values unchanged after New (no side-effect leakage).
 func TestNewDoesNotMutateCallerConfig(t *testing.T) {
 	cfg := &Config{} // 零值 Config：ctx/callback/attempts/map/delay/retryIfFunc/backoffFunc 均属待归一化字段
 	_ = New(cfg)
@@ -432,8 +424,6 @@ func TestNewDoesNotMutateCallerConfig(t *testing.T) {
 
 // TestConcurrentNewOnSharedConfig 验证多 goroutine 对同一零值 *Config 并发 New+Do 无数据竞争
 // （配合 go test -race 运行；修复前 isConfigValid 并发写同一批字段会被 race detector 捕获）。
-// TestConcurrentNewOnSharedConfig verifies concurrent New+Do on one shared zero-value *Config is race-free
-// (run with go test -race; before the fix, isConfigValid wrote the same fields concurrently and the race detector caught it).
 func TestConcurrentNewOnSharedConfig(t *testing.T) {
 	shared := &Config{}
 
@@ -456,8 +446,6 @@ func TestConcurrentNewOnSharedConfig(t *testing.T) {
 
 // TestWithAttemptsByErrorCopiesMap 验证 WithAttemptsByError 在入口拷贝用户 map，库持有私有副本：
 // With 之后修改原 map 不得影响重试预算。
-// TestWithAttemptsByErrorCopiesMap verifies WithAttemptsByError copies the user map at the entry so the library holds a private copy:
-// modifying the original map after With must not affect the retry budget.
 func TestWithAttemptsByErrorCopiesMap(t *testing.T) {
 	e := errors.New("test")
 	m := map[error]uint64{e: 1}
@@ -478,8 +466,6 @@ func TestWithAttemptsByErrorCopiesMap(t *testing.T) {
 
 // TestAttemptsExceededPreservesRootCause 验证 attempts 耗尽路径与 per-error 中止路径
 // 均以双 %w 保留 fn 的原始错误根因：errors.Is 须同时命中哨兵与原始错误（与 retryIf 路径语义一致）。
-// TestAttemptsExceededPreservesRootCause verifies the attempts-exhausted path and the per-error abort path
-// both preserve fn's original error as root cause via double %w: errors.Is must hit both the sentinel and the original error (consistent with the retryIf path).
 func TestAttemptsExceededPreservesRootCause(t *testing.T) {
 	e := errors.New("root cause")
 
@@ -505,7 +491,6 @@ func TestAttemptsExceededPreservesRootCause(t *testing.T) {
 }
 
 // countingCallback 记录每次 OnRetry 回调收到的 count 值
-// countingCallback records the count value received by each OnRetry callback
 type countingCallback struct {
 	mu     sync.Mutex
 	counts []int64
@@ -520,9 +505,6 @@ func (cb *countingCallback) OnRetry(count int64, delay time.Duration, err error)
 // TestOnRetryCalledOnlyForActualRetries 验证 OnRetry 只在确定要发起下一次重试时回调：
 // attempts=3 全失败 → 实际只发生 2 次重试，OnRetry 恰好回调 2 次（count=1,2），
 // 中止前的最后一次失败不得回调；per-error 预算中止路径同理。
-// TestOnRetryCalledOnlyForActualRetries verifies OnRetry is called only when a next retry will actually happen:
-// attempts=3 all failing → only 2 actual retries occur, so OnRetry must be called exactly 2 times (count=1,2);
-// the final failing attempt before abort must not trigger it; the per-error budget abort path behaves the same.
 func TestOnRetryCalledOnlyForActualRetries(t *testing.T) {
 	e := errors.New("test")
 	alwaysFail := func() (any, error) { return nil, e }
@@ -546,8 +528,6 @@ func TestOnRetryCalledOnlyForActualRetries(t *testing.T) {
 
 // TestAttemptsClamping 验证 attempts 归一化语义（Q7 定案）：
 // 0 → 重置为默认 3；>=65535 → 钳制为 65534（math.MaxUint16-1）而非重置为 3；合法值原样保留。
-// TestAttemptsClamping verifies attempts normalization semantics (settled Q7):
-// 0 → reset to default 3; >=65535 → clamped to 65534 (math.MaxUint16-1) instead of reset to 3; valid values kept as-is.
 func TestAttemptsClamping(t *testing.T) {
 	tests := []struct {
 		name     string

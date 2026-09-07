@@ -95,7 +95,6 @@ func TestExponentialBackoff(t *testing.T) {
 		},
 		{
 			// 期望值独立推导：钳制后应为 2^36 * 100ms，不使用被测代码同款 Exp2 表达式计算
-			// Expected value derived independently: clamped result must be 2^36 * 100ms, not computed with the same Exp2 expression as the code under test
 			name:     "max exponential",
 			input:    maxExponent + 1,
 			expected: (1 << 36) * baseInterval,
@@ -112,11 +111,8 @@ func TestExponentialBackoff(t *testing.T) {
 
 // TestExponentialBackoffOverflowClamp 验证大指数输入被钳制为不溢出的正值：
 // 2^36 * 100ms = 6871947673600000000ns < math.MaxInt64，而 2^37 * 100ms 会回绕为负值。
-// TestExponentialBackoffOverflowClamp verifies large power inputs are clamped to a non-overflowing positive value:
-// 2^36 * 100ms = 6871947673600000000ns < math.MaxInt64, while 2^37 * 100ms wraps around to a negative value.
 func TestExponentialBackoffOverflowClamp(t *testing.T) {
 	// 独立推导的钳制上界：2^36 个 100ms 基础时间单位
-	// Independently derived clamp bound: 2^36 units of the 100ms base interval
 	const clamped = (1 << 36) * baseInterval
 
 	for _, power := range []int64{37, 62, 100} {
@@ -175,7 +171,6 @@ func TestConcurrentBackoffs(t *testing.T) {
 		go func() {
 			defer wg.Done()
 			for range iterations {
-				// Test all backoff functions concurrently
 				_ = RandomBackoff(5)
 				_ = ExponentialBackoff(3)
 				combined := CombineBackoffs(FixedBackoff, ExponentialBackoff)
@@ -189,11 +184,8 @@ func TestConcurrentBackoffs(t *testing.T) {
 
 // TestFixedBackoffOverflow 验证大 interval 值被钳制而不溢出：
 // math.MaxInt64 直接乘 baseInterval 会回绕为负值，钳制后应返回正值。
-// TestFixedBackoffOverflow verifies large interval values are clamped without overflow:
-// math.MaxInt64 multiplied directly by baseInterval would wrap to negative; after clamping it must return positive.
 func TestFixedBackoffOverflow(t *testing.T) {
 	// 独立推导的钳制期望值：maxSafeInterval * baseInterval
-	// Independently derived clamped expected value: maxSafeInterval * baseInterval
 	expected := time.Duration(maxSafeInterval) * baseInterval
 
 	tests := []struct {
@@ -225,8 +217,6 @@ func TestFixedBackoffOverflow(t *testing.T) {
 
 // TestRandomBackoffOverflow 验证大 maxInterval 值被钳制而不溢出：
 // 多次调用结果均应为非负值，不得出现溢出回绕。
-// TestRandomBackoffOverflow verifies large maxInterval values are clamped without overflow:
-// multiple calls must all return non-negative values without overflow wraparound.
 func TestRandomBackoffOverflow(t *testing.T) {
 	tests := []struct {
 		name  string
@@ -254,8 +244,6 @@ func TestRandomBackoffOverflow(t *testing.T) {
 
 // TestCombineBackoffsNilElement 验证含 nil 元素的 backoffs 切片不 panic：
 // 跳过 nil 后应正常累加其余元素。
-// TestCombineBackoffsNilElement verifies backoffs slice containing nil elements does not panic:
-// after skipping nil, remaining elements should accumulate normally.
 func TestCombineBackoffsNilElement(t *testing.T) {
 	tests := []struct {
 		name     string
@@ -302,11 +290,8 @@ func TestCombineBackoffsNilElement(t *testing.T) {
 
 // TestCombineBackoffsOverflow 验证 3+ 个大退避值累加不溢出：
 // 饱和加法应将结果钳制为 math.MaxInt64，而非回绕为小正值。
-// TestCombineBackoffsOverflow verifies 3+ large backoff values do not overflow when accumulated:
-// saturating addition must clamp the result to math.MaxInt64 instead of wrapping to a small positive value.
 func TestCombineBackoffsOverflow(t *testing.T) {
 	// 构造返回极大值的 backoff 函数
-	// Construct backoff functions that return very large values
 	largeBackoff := func(_ int64) time.Duration {
 		return time.Duration(math.MaxInt64 / 2)
 	}
